@@ -1,0 +1,169 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+#
+# Complete, self-documenting Kubernetes deployment for registrybot.
+#
+# Every environment variable registrybot supports appears in the Deployment's env
+# list below: those with a default are set to that default; those that must be
+# absent by default are commented out (uncomment and set to opt in).
+#
+# The Deployment reads its credentials from a Secret named registrybot-secrets
+# via secretKeyRef. That Secret is deliberately NOT defined here: supply it out
+# of band (your secret store / External Secrets, or `kubectl create secret
+# generic registrybot-secrets --from-literal=...`). Keeping credential material
+# out of this manifest lets it float through GitOps without shipping or
+# overwriting secrets. Expected keys:
+#   CONFIGHUB_WORKER_ID, CONFIGHUB_WORKER_SECRET   worker identity (or a
+#   CONFIGHUB_AUTH_PRIVATE_KEY JWK instead of the pair; see the env list)
+#   GITHUB_TOKEN                                   read:packages
+#   GITHUB_WEBHOOK_SECRET                          optional; enables webhooks
+#
+# The bot needs no Kubernetes API access at all: it talks only to ConfigHub and
+# GitHub. Its ServiceAccount exists so the pod runs as a named identity with
+# no token mounted, not because it grants anything.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: registrybot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: registrybot
+  namespace: registrybot
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registrybot
+  namespace: registrybot
+  labels:
+    app: registrybot
+spec:
+  # One replica: the poll loop and the webhook queue are per-process, and two
+  # replicas would race each other writing the same fact units.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: registrybot
+  template:
+    metadata:
+      labels:
+        app: registrybot
+    spec:
+      serviceAccountName: registrybot
+      automountServiceAccountToken: false
+      containers:
+        - name: registrybot
+          image: ghcr.io/confighub/registrybot:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # ── ConfigHub connection (required) ──────────────────────────────
+            - name: CONFIGHUB_URL
+              value: "https://hub.confighub.com"
+            # Worker identity, as `cub worker get-envs <worker>` prints it.
+            - name: CONFIGHUB_WORKER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: registrybot-secrets
+                  key: CONFIGHUB_WORKER_ID
+            - name: CONFIGHUB_WORKER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: registrybot-secrets
+                  key: CONFIGHUB_WORKER_SECRET
+            # Alternative: a private key registered with `cub worker key add`.
+            # Set this INSTEAD of the id/secret pair (exactly one credential
+            # kind is allowed). The value is the JWK itself or a path to it.
+            # - name: CONFIGHUB_AUTH_PRIVATE_KEY
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: registrybot-secrets
+            #       key: CONFIGHUB_AUTH_PRIVATE_KEY
+            # Only if the server sets a non-default assertion audience.
+            # - name: CONFIGHUB_ASSERTION_AUDIENCE
+            #   value: "confighub-auth"
+
+            # ── Configuration document (required) ────────────────────────────
+            # The AppConfig/YAML unit that says which repositories to watch.
+            # Re-read every poll cycle; see examples/registrybot-config.yaml.
+            - name: REGISTRYBOT_CONFIG_SPACE
+              value: "registrybot"
+            - name: REGISTRYBOT_CONFIG_UNIT
+              value: "registrybot"
+
+            # ── GitHub (required) ────────────────────────────────────────────
+            # Classic PAT with read:packages, or a GitHub App installation token
+            # with packages: read. Used to list package versions.
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: registrybot-secrets
+                  key: GITHUB_TOKEN
+            # GitHub Enterprise Server: point at its API instead.
+            # - name: GITHUB_API_URL
+            #   value: "https://api.github.com"
+
+            # ── Webhooks (optional) ──────────────────────────────────────────
+            # The secret GitHub signs deliveries with. Absent = webhook endpoint
+            # disabled, polling only. Expose POST /webhooks/github to GitHub
+            # (Ingress/Gateway of your choosing) when you set it.
+            # - name: GITHUB_WEBHOOK_SECRET
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: registrybot-secrets
+            #       key: GITHUB_WEBHOOK_SECRET
+
+            # ── Polling ──────────────────────────────────────────────────────
+            # Default poll interval; the configuration document's pollInterval
+            # overrides it.
+            - name: REGISTRYBOT_POLL_INTERVAL
+              value: "5m"
+            - name: REGISTRYBOT_LISTEN_ADDR
+              value: ":8080"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+---
+# ClusterIP Service in front of the webhook receiver and the read-only /status
+# endpoint. How it is exposed to GitHub is a per-cluster decision (Ingress,
+# Gateway, tunnel); nothing here assumes one.
+apiVersion: v1
+kind: Service
+metadata:
+  name: registrybot
+  namespace: registrybot
+  labels:
+    app: registrybot
+spec:
+  selector:
+    app: registrybot
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

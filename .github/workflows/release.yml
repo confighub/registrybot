@@ -1,0 +1,178 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+
+name: release
+
+# Two things are released here, on two different cadences:
+#
+#   * The container image is versioned with semver and is cut ONLY when you push
+#     a git tag vX.Y.Z. It is immutable per version.
+#
+#   * The config bundle floats — a single moving :latest, no semver tag of its
+#     own — but every cut pins a concrete released image inside the manifest. It
+#     is rebuilt on a new vX.Y.Z tag (pinned to that release) AND on every push to
+#     main (pinned to the current latest tag). A config-only change thus
+#     republishes the bundle at the same image version without building a new
+#     image. The pinned version is resolved from git tags, never committed, so
+#     there is no commit-to-release cycle.
+#
+# The bundle job is idempotent: the tarball is reproducible, so a main push that
+# did not change manifests/** re-pushes an identical digest and just re-points
+# :latest at it — a no-op. (We deliberately do not use an on.push.paths filter:
+# GitHub applies push paths filters to tag pushes too, which would make a
+# code-only release tag silently fail to trigger this workflow.)
+#
+# The committed manifest carries image ...:latest (an honest default for a raw
+# `kubectl apply`); the bundle job substitutes that with the resolved semver and
+# then asserts the pin actually happened before publishing.
+on:
+  push:
+    tags: ['v*']
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/confighub/registrybot
+  BUNDLE: ghcr.io/${{ github.repository_owner }}/configs/registrybot
+
+jobs:
+  # Build and push the semver image. Tag events only — a config-only change to
+  # main reuses the existing image.
+  image:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          # {{raw}} keeps the leading v, so the image tag equals the git tag
+          # equals the value the bundle substitutes in — no v-prefix mismatch.
+          tags: |
+            type=semver,pattern={{raw}}
+            type=sha
+          flavor: |
+            latest=true
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          # Attach an SPDX SBOM and provenance to the image manifest. Together with
+          # the notice files copied into the image, this is the per-release
+          # inventory of what the image contains:
+          #   docker buildx imagetools inspect $IMAGE:<tag> --format '{{json .SBOM}}'
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Publish the config bundle, pinned to the resolved release version. Runs after
+  # image on a tag (needs), and also when image is skipped (config-only path) —
+  # but not if image actually failed.
+  bundle:
+    needs: [image]
+    if: ${{ always() && needs.image.result != 'failure' && needs.image.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need all tags to resolve the latest on the config-only path
+
+      - name: Resolve release version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"           # this release
+          else
+            VERSION="$(git tag --list 'v*' --sort=-v:refname | head -n1)"  # latest existing
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "No v* release tag exists yet; nothing to pin. Skipping bundle publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Resolved release version: ${VERSION}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install oras
+        if: steps.ver.outputs.skip != 'true'
+        uses: oras-project/setup-oras@v2
+
+      - name: Log in to ghcr.io
+        if: steps.ver.outputs.skip != 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            oras login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Build, pin, and verify bundle contents
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p out/registrybot
+          cp manifests/*.yaml out/registrybot/
+
+          # Pin the floating :latest image ref to the resolved release version.
+          sed -i "s#image: ${IMAGE}:latest#image: ${IMAGE}:${VERSION}#g" out/registrybot/*.yaml
+
+          # Fail loud if any unpinned image ref survived the substitution.
+          if grep -RnE "image: ${IMAGE}:latest" out/registrybot/; then
+            echo "::error::config bundle still references ${IMAGE}:latest after pinning"
+            exit 1
+          fi
+          if ! grep -Rq "image: ${IMAGE}:${VERSION}" out/registrybot/; then
+            echo "::error::config bundle does not reference ${IMAGE}:${VERSION}"
+            exit 1
+          fi
+
+      - name: Package and push bundle
+        if: steps.ver.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # Reproducible tarball: fixed entry order, ownership, and mtime, and
+          # gzip -n (no embedded name/timestamp), so identical content yields an
+          # identical layer digest run to run.
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+              --mtime='UTC 1970-01-01' -cf - -C out/registrybot . | gzip -n > registrybot.tar.gz
+
+          # The bundle floats: one moving :latest, no semver tag (semver lives on
+          # the image, which the manifest inside the bundle is pinned to). Pin
+          # org.opencontainers.image.created (oras otherwise stamps "now") so the
+          # manifest digest is stable for identical content.
+          oras push \
+            "${BUNDLE}:latest" \
+            --artifact-type application/vnd.confighub.config.bundle.v1 \
+            --annotation "org.opencontainers.image.created=1970-01-01T00:00:00Z" \
+            "registrybot.tar.gz:application/vnd.oci.image.layer.v1.tar+gzip"
+
+          echo "Pushed ${BUNDLE}:latest"

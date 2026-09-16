@@ -1,0 +1,7 @@
+# Built binary (do not commit executables)
+/registrybot
+*.exe
+
+# Local env and scratch
+.env
+/tmp/

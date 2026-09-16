@@ -1,0 +1,51 @@
+# registrybot configuration document.
+#
+# This is the content of the AppConfig/YAML unit registrybot reads its
+# configuration from (REGISTRYBOT_CONFIG_SPACE / REGISTRYBOT_CONFIG_UNIT). It is
+# re-read every poll cycle, so editing the unit in ConfigHub reconfigures the
+# running bot. Create it with:
+#
+#   cub unit create --space registrybot --toolchain AppConfig/YAML \
+#     registrybot examples/registrybot-config.yaml
+#
+# Every key except repositories[].repository is optional.
+
+# How often to poll GitHub for every repository. Overrides the bot's
+# REGISTRYBOT_POLL_INTERVAL. Webhooks make the bot look sooner; polling is what
+# guarantees it eventually sees everything.
+pollInterval: 5m
+
+# Applied to every repository that does not set the field itself.
+defaults:
+  # Space (slug) the fact units are created in. Without this, the space the
+  # configuration unit lives in is used.
+  space: registry-facts
+  # Tags to ignore entirely. Build-system noise is the usual reason.
+  exclude: ["^sha-", "^pr-"]
+  # Streams every repository gets in addition to the built-in "newest" and
+  # "semver". A stream names one tag out of many; downstream units link to
+  # streams.<name>.tag (or .digest) rather than to a raw tag list.
+  streams:
+    # Highest release version, prereleases excluded.
+    stable: { semver: ">=0.0.0" }
+
+repositories:
+  # Minimal: the built-in streams, defaults for everything else. Fact unit slug
+  # is derived (confighub-argobot).
+  - repository: ghcr.io/confighub/argobot
+
+  # Everything spelled out.
+  - repository: ghcr.io/confighub/cubbychat
+    space: registry-facts
+    unit: cubbychat-image
+    limit: 25
+    exclude: ["^sha-"]
+    streams:
+      # Highest 1.x release.
+      stable: { semver: ">=1.0.0 <2.0.0" }
+      # Highest 2.x prerelease or release: a "-0" suffix admits prereleases.
+      next: { semver: ">=2.0.0-0" }
+      # Most recently pushed tag whose name is exactly "main".
+      main: { pattern: "^main$" }
+      # Override a built-in: "semver" becomes 1.x only.
+      semver: { semver: "<2.0.0" }

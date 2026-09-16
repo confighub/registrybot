@@ -1,0 +1,45 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+
+name: third-party-licenses
+
+# Regenerates THIRD_PARTY_LICENSES.txt (the notices shipped in the image) and
+# fails if it drifts from what is committed, or if a forbidden or restricted
+# (copyleft) license gets pulled in. Runs in golang:1.25 so GOROOT is the native
+# stdlib; a toolchain-managed GOROOT breaks go-licenses (see the script header).
+on:
+  pull_request:
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'scripts/gen-third-party-licenses.sh'
+      - 'THIRD_PARTY_LICENSES.txt'
+      - '.github/workflows/third-party-licenses.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  go-modules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: golang:1.25
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Regenerate notices (also runs the disallowed-license gate)
+        run: ./scripts/gen-third-party-licenses.sh
+
+      - name: Fail if the committed file is out of date
+        run: |
+          if ! git diff --exit-code THIRD_PARTY_LICENSES.txt; then
+            echo "::error::THIRD_PARTY_LICENSES.txt is out of date. Run ./scripts/gen-third-party-licenses.sh and commit the result."
+            exit 1
+          fi
