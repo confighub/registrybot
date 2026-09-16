@@ -156,8 +156,22 @@ func TestExcluded(t *testing.T) {
 func TestDescribeChange(t *testing.T) {
 	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/argobot\n")
 	got := describeChange(buildFactDoc(w, sampleVersions(), "", at(15)))
-	want := "registrybot observed ghcr.io/confighub/argobot: newest=main semver=v0.3.1 (7 tags)"
+	want := "registrybot observed ghcr.io/confighub/argobot: newest=main@c semver=v0.3.1@a (7 tags)"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
+	}
+}
+
+func TestShortDigest(t *testing.T) {
+	cases := map[string]string{
+		"sha256:9d0df3df21e047e81dd449c9e31dbd29c6795aafb305ec07b0a4d55bd77b7075": "9d0df3df21e0",
+		"sha256:abc": "abc",
+		"abcdef":     "abcdef",
+		"":           "",
+	}
+	for in, want := range cases {
+		if got := shortDigest(in); got != want {
+			t.Errorf("shortDigest(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

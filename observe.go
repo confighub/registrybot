@@ -232,7 +232,11 @@ func stripObservedAt(s string) string {
 }
 
 // describeChange is the revision description on the fact unit: a one-line
-// summary of what the streams now point at.
+// summary of what the streams now point at. Each stream carries a short digest
+// so the description differs whenever a stream's image does: a moving tag
+// ("latest", "buildcache-arm64") changes the facts without changing the tag
+// name, and ConfigHub replaces a description identical to the previous one
+// with the bare source type.
 func describeChange(doc factDoc) string {
 	names := make([]string, 0, len(doc.Streams))
 	for name := range doc.Streams {
@@ -242,10 +246,21 @@ func describeChange(doc factDoc) string {
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
 		if s := doc.Streams[name]; s != nil {
-			parts = append(parts, name+"="+s.Tag)
+			parts = append(parts, name+"="+s.Tag+"@"+shortDigest(s.Digest))
 		} else {
 			parts = append(parts, name+"=none")
 		}
 	}
 	return fmt.Sprintf("registrybot observed %s: %s (%d tags)", doc.Repository, strings.Join(parts, " "), len(doc.Tags))
+}
+
+// shortDigest abbreviates "sha256:<64 hex>" to its first 12 hex characters.
+func shortDigest(d string) string {
+	if i := strings.Index(d, ":"); i >= 0 {
+		d = d[i+1:]
+	}
+	if len(d) > 12 {
+		d = d[:12]
+	}
+	return d
 }

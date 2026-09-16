@@ -13,9 +13,9 @@ registrybot follows the [argobot](https://github.com/confighub/argobot) pattern:
 Two things make registrybot look at a repository, and both lead to the same place:
 
 - **Polling.** Every `pollInterval` (default 5m) the bot re-reads its configuration document and enqueues every repository in it.
-- **Webhooks.** A GitHub `package` (or legacy `registry_package`) event names a repository. If that repository is watched it is enqueued immediately; otherwise the delivery is acknowledged and ignored. Nothing in the payload is trusted: it only decides *when* to look.
+- **Webhooks.** A GitHub `package` (or legacy `registry_package`) event names a repository. If that repository is watched it is enqueued once the repository has *settled*: one image push is many package events spread over a few minutes (per-architecture manifests, buildcache tags, the manifest list, the cosign signature and attestation), so the bot waits until `webhooks.settle` (default 2m) has passed with no further delivery for that repository, capped at `webhooks.maxDelay` (default 10m) from the first, and reconciles once. A poll that falls inside the window leaves the repository to the timer. Deliveries for unwatched repositories are acknowledged and ignored. Nothing in the payload is trusted: it only decides *when* to look.
 
-A single worker drains the queue. For each repository it lists the package's active versions from the GitHub Packages API, builds the fact document, and compares it with what the unit holds. If the facts changed it writes a new revision with a one-line description such as `registrybot observed ghcr.io/confighub/argobot: newest=main semver=v0.3.1 (12 tags)`. If nothing changed it writes nothing, so an idle repository produces no revision churn. A fact unit that does not exist yet is created (toolchain `AppConfig/YAML`, labeled `registrybot.confighub.com/repository=<repo>`).
+A single worker drains the queue. For each repository it lists the package's active versions from the GitHub Packages API, builds the fact document, and compares it with what the unit holds. If the facts changed it writes a new revision with a one-line description such as `registrybot observed ghcr.io/confighub/argobot: newest=main@9d0df3df21e0 semver=v0.3.1@2a9c5d3ee6ff (12 tags)` (each stream's tag and the first 12 characters of its digest, so a moving tag still reads as a change). If nothing changed it writes nothing, so an idle repository produces no revision churn. A fact unit that does not exist yet is created (toolchain `AppConfig/YAML`, labeled `registrybot.confighub.com/repository=<repo>`).
 
 The bot holds no state it cannot rebuild from GitHub and ConfigHub. Restart it any time.
 
@@ -63,6 +63,9 @@ What to watch is itself configuration, held in a ConfigHub unit of toolchain `Ap
 
 ```yaml
 pollInterval: 5m
+webhooks:
+  settle: 2m                        # reconcile once deliveries for a repository stop for this long
+  maxDelay: 10m                     # ...but never later than this after the first delivery
 defaults:
   space: registry-facts             # where fact units go; default: the config unit's own space
   exclude: ["^sha-", "^pr-"]        # tags to ignore

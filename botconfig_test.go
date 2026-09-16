@@ -140,3 +140,32 @@ func TestDisplayName(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestParseWebhookSettle(t *testing.T) {
+	p, err := parseBotConfig([]byte("repositories: []\n"), "facts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Settle != defaultSettle || p.MaxDelay != defaultMaxDelay {
+		t.Errorf("defaults: settle %s maxDelay %s", p.Settle, p.MaxDelay)
+	}
+	p, err = parseBotConfig([]byte("webhooks:\n  settle: 0\n  maxDelay: 0\n"), "facts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Settle != 0 || p.MaxDelay != 0 {
+		t.Errorf("disabled: settle %s maxDelay %s", p.Settle, p.MaxDelay)
+	}
+	p, err = parseBotConfig([]byte("webhooks:\n  settle: 45s\n  maxDelay: 3m\n"), "facts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Settle != 45*time.Second || p.MaxDelay != 3*time.Minute {
+		t.Errorf("explicit: settle %s maxDelay %s", p.Settle, p.MaxDelay)
+	}
+	for _, bad := range []string{"webhooks:\n  settle: soon\n", "webhooks:\n  settle: -1m\n", "webhooks:\n  settle: 5m\n  maxDelay: 1m\n"} {
+		if _, err := parseBotConfig([]byte(bad), "facts"); err == nil {
+			t.Errorf("%q should be rejected", bad)
+		}
+	}
+}

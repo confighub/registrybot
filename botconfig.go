@@ -21,6 +21,9 @@ import (
 // cycle, so a change takes effect without a restart.
 //
 //	pollInterval: 5m
+//	webhooks:
+//	  settle: 2m
+//	  maxDelay: 10m
 //	defaults:
 //	  space: registry-facts
 //	  exclude: ["^sha-", "^pr-"]
@@ -34,10 +37,32 @@ import (
 //	      main:   {pattern: "^main$"}
 type botConfig struct {
 	PollInterval string          `yaml:"pollInterval"`
+	Webhooks     webhookConfig   `yaml:"webhooks"`
 	Defaults     repoDefaults    `yaml:"defaults"`
 	Discovery    discoveryConfig `yaml:"discovery"`
 	Repositories []repoConfig    `yaml:"repositories"`
 }
+
+// webhookConfig sets how long the bot lets a repository settle after a webhook
+// before it reconciles it. One image push is many package events: each
+// per-architecture manifest, the buildcache tags, the manifest list, then a
+// cosign signature and attestation, spread over a few minutes. Reconciling on
+// every one of them writes a revision per intermediate state. The bot instead
+// waits until settle has passed with no further delivery for that repository,
+// and reconciles once. maxDelay caps the wait from the first delivery, so a
+// repository that is pushed to continuously is still observed.
+//
+// Defaults: settle 2m, maxDelay 10m. "0" for settle reconciles on every
+// delivery, as versions before 0.2.1 did.
+type webhookConfig struct {
+	Settle   string `yaml:"settle"`
+	MaxDelay string `yaml:"maxDelay"`
+}
+
+const (
+	defaultSettle   = 2 * time.Minute
+	defaultMaxDelay = 10 * time.Minute
+)
 
 // repoDefaults are applied to every repository that does not set the field,
 // and to every discovered repository.
@@ -135,6 +160,8 @@ func (r repoRef) String() string { return r.Registry + "/" + r.Owner + "/" + r.N
 // parsedConfig is the resolved configuration document.
 type parsedConfig struct {
 	Interval  time.Duration // zero when the document does not set one
+	Settle    time.Duration // webhooks.settle; zero means reconcile on every delivery
+	MaxDelay  time.Duration // webhooks.maxDelay; zero means no cap
 	Watches   []watch       // explicit repositories, in document order
 	Discovery discovery
 }
@@ -234,6 +261,18 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 		}
 		out.Interval = d
 	}
+	var err error
+	out.Settle, err = parseOptionalDuration(doc.Webhooks.Settle, defaultSettle)
+	if err != nil {
+		return parsedConfig{}, fmt.Errorf("webhooks.settle: %w", err)
+	}
+	out.MaxDelay, err = parseOptionalDuration(doc.Webhooks.MaxDelay, defaultMaxDelay)
+	if err != nil {
+		return parsedConfig{}, fmt.Errorf("webhooks.maxDelay: %w", err)
+	}
+	if out.MaxDelay > 0 && out.MaxDelay < out.Settle {
+		return parsedConfig{}, fmt.Errorf("webhooks.maxDelay %s must not be shorter than webhooks.settle %s", out.MaxDelay, out.Settle)
+	}
 
 	defaultExclude, err := compilePatterns(doc.Defaults.Exclude)
 	if err != nil {
@@ -329,6 +368,20 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 		}
 	}
 	return out, nil
+}
+
+// parseOptionalDuration reads a duration field: absent means the default,
+// "0" means disabled, anything else must be a non-negative duration.
+func parseOptionalDuration(value string, def time.Duration) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("%q: want a duration such as 2m, or 0 to disable", value)
+	}
+	return d, nil
 }
 
 func firstNonEmpty(values ...string) string {

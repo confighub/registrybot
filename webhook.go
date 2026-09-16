@@ -22,9 +22,10 @@ import (
 //	GET  /status           what the bot is watching and when it last succeeded
 //
 // A webhook does not carry facts into ConfigHub. It names a repository, and if
-// that repository is watched the bot reconciles it now rather than at the next
-// poll. Anything a payload says about tags or digests is ignored, so a forged
-// or malformed delivery can at most trigger an early look.
+// that repository is watched the bot reconciles it once the repository has
+// settled (see webhookConfig) rather than at the next poll. Anything a payload
+// says about tags or digests is ignored, so a forged or malformed delivery can
+// at most trigger an early look.
 func newHTTPServer(cfg config, r *reconciler) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -120,13 +121,13 @@ func githubWebhookHandler(secret string, r *reconciler) http.HandlerFunc {
 				writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": false})
 				return
 			}
-			log.Printf("[INFO] webhook: %s %s for %s; discovered, reconciling", event, payload.Action, key)
-			r.enqueue(key)
+			log.Printf("[INFO] webhook: %s %s for %s; discovered, settling", event, payload.Action, key)
+			r.enqueueSettled(key)
 			writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": true, "discovered": true})
 			return
 		}
-		log.Printf("[INFO] webhook: %s %s for %s; reconciling", event, payload.Action, key)
-		r.enqueue(key)
+		log.Printf("[INFO] webhook: %s %s for %s; settling", event, payload.Action, key)
+		r.enqueueSettled(key)
 		writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": true})
 	}
 }

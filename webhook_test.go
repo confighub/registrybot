@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func sign(secret string, body []byte) string {
@@ -120,5 +121,97 @@ func TestRepositoryFromPayloadFallsBackToNamespace(t *testing.T) {
 	key, ok := repositoryFromPayload(d)
 	if !ok || key != "ghcr.io/confighub/configs/argobot" {
 		t.Errorf("%q %v", key, ok)
+	}
+}
+
+// drain returns the keys queued right now without blocking.
+func drain(r *reconciler) []string {
+	var keys []string
+	for {
+		select {
+		case k := <-r.queue:
+			keys = append(keys, k)
+		default:
+			return keys
+		}
+	}
+}
+
+func waitQueued(t *testing.T, r *reconciler, within time.Duration) []string {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if keys := drain(r); len(keys) > 0 {
+			return keys
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return nil
+}
+
+func TestWebhookBurstSettlesIntoOneReconcile(t *testing.T) {
+	r := newTestReconciler(t)
+	r.settle, r.maxDelay = 40*time.Millisecond, time.Second
+	h := githubWebhookHandler("s3cret", r)
+
+	for i := 0; i < 5; i++ {
+		if rec := deliver(t, h, "s3cret", "package", []byte(packageEvent), true); rec.Code != http.StatusAccepted {
+			t.Fatalf("status %d: %s", rec.Code, rec.Body)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if keys := drain(r); len(keys) != 0 {
+		t.Fatalf("queued during the settle window: %v", keys)
+	}
+	if !r.isSettling("ghcr.io/confighub/argobot") {
+		t.Fatal("settle window should be open")
+	}
+	keys := waitQueued(t, r, 500*time.Millisecond)
+	if len(keys) != 1 || keys[0] != "ghcr.io/confighub/argobot" {
+		t.Fatalf("queued %v, want exactly one reconcile", keys)
+	}
+	if r.isSettling("ghcr.io/confighub/argobot") {
+		t.Error("settle window should be closed")
+	}
+}
+
+func TestWebhookSettleIsCappedByMaxDelay(t *testing.T) {
+	r := newTestReconciler(t)
+	r.settle, r.maxDelay = 30*time.Millisecond, 60*time.Millisecond
+	h := githubWebhookHandler("s3cret", r)
+
+	// Deliver faster than the settle window for longer than maxDelay.
+	start := time.Now()
+	for time.Since(start) < 120*time.Millisecond {
+		deliver(t, h, "s3cret", "package", []byte(packageEvent), true)
+		time.Sleep(10 * time.Millisecond)
+	}
+	if keys := drain(r); len(keys) == 0 {
+		t.Fatal("continuous deliveries should still be reconciled within maxDelay")
+	}
+}
+
+func TestWebhookWithoutSettleQueuesImmediately(t *testing.T) {
+	r := newTestReconciler(t) // settle zero
+	h := githubWebhookHandler("s3cret", r)
+	deliver(t, h, "s3cret", "package", []byte(packageEvent), true)
+	deliver(t, h, "s3cret", "package", []byte(packageEvent), true)
+	if keys := drain(r); len(keys) != 1 {
+		t.Errorf("queued %v, want one (deduplicated) immediate reconcile", keys)
+	}
+}
+
+func TestPollSkipsSettlingRepository(t *testing.T) {
+	r := newTestReconciler(t)
+	r.settle, r.maxDelay = 200*time.Millisecond, time.Second
+	r.enqueueSettled("ghcr.io/confighub/argobot")
+	for _, k := range []string{"ghcr.io/confighub/argobot"} {
+		if r.isSettling(k) {
+			continue
+		}
+		r.enqueue(k)
+	}
+	if keys := drain(r); len(keys) != 0 {
+		t.Errorf("poll queued a settling repository: %v", keys)
 	}
 }

@@ -53,6 +53,8 @@ type reconciler struct {
 	watches      map[string]watch // explicit ∪ discovered, explicit winning
 	discovery    discovery
 	pollInterval time.Duration
+	settle       time.Duration // webhooks.settle
+	maxDelay     time.Duration // webhooks.maxDelay
 	configHash   string
 	configError  string
 	status       map[string]*repoStatus
@@ -60,6 +62,18 @@ type reconciler struct {
 	queue   chan string
 	pending map[string]bool
 	pendMu  sync.Mutex
+
+	// settling holds the repositories a webhook named whose settle window has
+	// not closed yet. The poll leaves them alone; the timer enqueues them.
+	settling map[string]*settleState
+	settleMu sync.Mutex
+}
+
+// settleState is one open settle window.
+type settleState struct {
+	timer      *time.Timer
+	first      time.Time // when the window opened
+	deliveries int       // webhook deliveries folded into it
 }
 
 // repoStatus is what /status reports per repository. It is diagnostics, not
@@ -90,6 +104,7 @@ func newReconciler(cfg config, hub *hubClient, gh *githubClient) *reconciler {
 		status:       map[string]*repoStatus{},
 		queue:        make(chan string, 1024),
 		pending:      map[string]bool{},
+		settling:     map[string]*settleState{},
 	}
 }
 
@@ -138,6 +153,11 @@ func (r *reconciler) cycle(ctx context.Context) {
 		log.Printf("[WARN] poll: no repositories configured; waiting for the configuration document")
 	}
 	for _, k := range keys {
+		if r.isSettling(k) {
+			// A webhook named it moments ago and more deliveries may follow;
+			// the settle timer reconciles it once they stop.
+			continue
+		}
 		r.enqueue(k)
 	}
 }
@@ -172,12 +192,14 @@ func (r *reconciler) reloadConfig(ctx context.Context) error {
 	r.explicit = m
 	r.discovery = parsed.Discovery
 	r.pollInterval = interval
+	r.settle = parsed.Settle
+	r.maxDelay = parsed.MaxDelay
 	r.configHash = hash
 	r.configError = ""
 	r.rebuildLocked()
 	r.mu.Unlock()
-	log.Printf("[INFO] config: loaded %d repositories, poll interval %s, discovery from webhooks: %v",
-		len(parsed.Watches), interval, parsed.Discovery.Enabled)
+	log.Printf("[INFO] config: loaded %d repositories, poll interval %s, webhook settle %s (max delay %s), discovery from webhooks: %v",
+		len(parsed.Watches), interval, parsed.Settle, parsed.MaxDelay, parsed.Discovery.Enabled)
 	for _, w := range parsed.Watches {
 		names := make([]string, 0, len(w.Streams))
 		for _, s := range w.Streams {
@@ -226,8 +248,20 @@ func (r *reconciler) recoverDiscovered(ctx context.Context) error {
 		found[ref.String()] = d.watchFor(ref, u.Slug)
 	}
 	r.mu.Lock()
+	for key := range r.explicit {
+		// An explicit repository's fact unit carries the labels too; it is
+		// not discovered, and counting it as such misreports the number.
+		delete(found, key)
+	}
 	for key, w := range r.pendingDisc {
 		if _, ok := found[key]; !ok {
+			found[key] = w
+		}
+	}
+	for key, w := range r.discovered {
+		// Still settling from the webhook that discovered it, so its fact
+		// unit does not exist yet; forgetting it now would lose the reconcile.
+		if _, ok := found[key]; !ok && r.isSettling(key) {
 			found[key] = w
 		}
 	}
@@ -338,6 +372,61 @@ func (r *reconciler) enqueue(key string) {
 	default:
 		log.Printf("[WARN] queue full; dropping reconcile of %s (the next poll picks it up)", key)
 	}
+}
+
+// enqueueSettled schedules a repository a webhook named. Rather than
+// reconciling now, it opens (or extends) the repository's settle window: the
+// reconcile runs once settle has passed with no further delivery, or when the
+// window has been open for maxDelay, whichever comes first. With settle
+// disabled it enqueues immediately.
+func (r *reconciler) enqueueSettled(key string) {
+	r.mu.RLock()
+	settle, maxDelay := r.settle, r.maxDelay
+	r.mu.RUnlock()
+	if settle <= 0 {
+		r.enqueue(key)
+		return
+	}
+	now := time.Now()
+	r.settleMu.Lock()
+	defer r.settleMu.Unlock()
+	st, open := r.settling[key]
+	if !open {
+		st = &settleState{first: now}
+		r.settling[key] = st
+	} else {
+		st.timer.Stop()
+	}
+	st.deliveries++
+	delay := settle
+	if maxDelay > 0 {
+		if remaining := maxDelay - now.Sub(st.first); remaining < delay {
+			delay = max(remaining, 0)
+		}
+	}
+	st.timer = time.AfterFunc(delay, func() { r.settled(key) })
+}
+
+// settled closes a repository's settle window and enqueues it.
+func (r *reconciler) settled(key string) {
+	r.settleMu.Lock()
+	st, open := r.settling[key]
+	delete(r.settling, key)
+	r.settleMu.Unlock()
+	if !open {
+		return
+	}
+	log.Printf("[INFO] webhook: %s settled after %d deliveries in %s; reconciling",
+		key, st.deliveries, time.Since(st.first).Round(time.Second))
+	r.enqueue(key)
+}
+
+// isSettling reports whether a settle window is open for the repository.
+func (r *reconciler) isSettling(key string) bool {
+	r.settleMu.Lock()
+	defer r.settleMu.Unlock()
+	_, open := r.settling[key]
+	return open
 }
 
 // lookup returns the watch for a repository key and whether it is watched.
@@ -487,6 +576,7 @@ func (r *reconciler) statusFor(w watch) *repoStatus {
 type snapshot struct {
 	Version      string       `json:"version"`
 	PollInterval string       `json:"pollInterval"`
+	Settle       string       `json:"webhookSettle"`
 	ConfigSource string       `json:"configSource"`
 	ConfigError  string       `json:"configError,omitempty"`
 	Webhooks     bool         `json:"webhooksEnabled"`
@@ -504,6 +594,7 @@ func (r *reconciler) snapshot() snapshot {
 	s := snapshot{
 		Version:      version,
 		PollInterval: r.pollInterval.String(),
+		Settle:       r.settle.String(),
 		ConfigSource: source,
 		ConfigError:  r.configError,
 		Webhooks:     r.cfg.WebhookSecret != "",

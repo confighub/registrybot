@@ -36,7 +36,9 @@ The document is re-read every cycle. Subscribing to the event log for changes to
 
 Polling and webhooks both end in the same `reconcile(repository)`, which lists versions from the GitHub Packages API and rewrites the fact unit. Webhook payloads are never used as data: a delivery names a repository, and if the bot watches that repository it looks now instead of at the next tick. This removes a whole class of problems — payload shape drift, forged deliveries, out-of-order events, the `registry_package`/`package` duality — at the cost of one API call per delivery. Polling remains the completeness guarantee; webhooks are latency.
 
-The queue deduplicates by repository and a single worker drains it, so a burst of deliveries for one repository is one reconcile and two reconciles never race on one unit.
+The queue deduplicates by repository and a single worker drains it, so two reconciles never race on one unit. Deduplication alone did not make a burst one reconcile, though: an image push is not one event. A multi-architecture build with cosign lands as five to ten package events over several minutes (each per-architecture manifest and its buildcache tag, the manifest list, the signature, the attestation), and the worker is fast enough to reconcile between them, so the first deployment wrote a revision per intermediate state. A webhook therefore opens a *settle window* for its repository instead of enqueuing it: the reconcile runs once no delivery has arrived for `webhooks.settle`, or `webhooks.maxDelay` after the first one, and the poll skips a repository whose window is open. Revisions go back to meaning "the repository changed", at the cost of the settle time in latency, which is still well under a poll interval.
+
+One more wrinkle in what a revision says: ConfigHub treats a change description identical to the previous one as "not provided" and stores the source type instead. Two consecutive observations that differ only in a digest (a moving `latest`, a rebuilt buildcache tag) would produce the same one-liner, so the description carries a short digest per stream.
 
 ## Identity
 

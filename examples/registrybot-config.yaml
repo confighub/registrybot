@@ -18,6 +18,18 @@
 # guarantees it eventually sees everything.
 pollInterval: 5m
 
+# How long a repository is left to settle after a webhook before it is
+# reconciled. One image push arrives as many package events over a few minutes
+# (per-architecture manifests, buildcache tags, the manifest list, then the
+# cosign signature and attestation); reconciling on each one writes a revision
+# per intermediate state. The bot waits until `settle` has passed with no
+# further delivery, capped at `maxDelay` from the first one, then reconciles
+# once. The poll leaves a settling repository alone. `settle: 0` reconciles on
+# every delivery. Defaults shown.
+webhooks:
+  settle: 2m
+  maxDelay: 10m
+
 # Applied to every repository that does not set the field itself.
 defaults:
   # Space (slug) the fact units are created in. Without this, the space the
