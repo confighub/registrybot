@@ -9,6 +9,8 @@ subpackages; one concern per file, named for it.
   schedule a reconcile; they carry no data into ConfigHub. Keep it that way.
 - `observe.go` renders deterministically and `sameFacts` ignores `observedAt`;
   a change that makes an unchanged repository produce a new revision is a bug.
+- Discovered repositories are recovered from labeled fact units every cycle, never
+  persisted by the bot itself. Do not make the bot write to its configuration unit.
 - Process configuration is environment only (`config.go`); everything about
   *what* to watch is the configuration document (`botconfig.go`), so it can be
   changed through ConfigHub. Do not add watch-list knobs as env vars.

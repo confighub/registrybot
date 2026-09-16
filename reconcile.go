@@ -19,19 +19,39 @@ import (
 	"github.com/confighub/sdk/core/workerapi"
 )
 
+// Labels the bot stamps on every fact unit it creates. They are how a
+// discovered repository is recovered after a restart and how a query finds
+// every fact unit without parsing data.
+const (
+	labelManaged    = "registrybot.confighub.com/managed"
+	labelRegistry   = "registrybot.confighub.com/registry"
+	labelRepository = "registrybot.confighub.com/repository"
+)
+
 // reconciler owns the loop. Two things feed it — the poll timer, which
 // enqueues every watched repository, and the webhook receiver, which enqueues
 // the one a delivery named — and both converge on reconcile(), which reads the
 // repository's versions from GitHub and rewrites its fact unit if anything
 // changed. There is no other path to a write, which keeps the two sources from
 // disagreeing: a webhook only makes the bot look sooner.
+//
+// Watches come from two places. Explicit ones are the configuration document's
+// repositories. Discovered ones exist because a signed webhook named a
+// repository the discovery policy admits; they are recovered each cycle from
+// the labeled fact units in the discovery space, so the units are the record
+// and the bot never edits its own configuration. An explicit entry always wins
+// over a discovered one for the same repository.
 type reconciler struct {
 	cfg config
 	hub *hubClient
 	gh  *githubClient
 
 	mu           sync.RWMutex
-	watches      map[string]watch // key: canonical repository
+	explicit     map[string]watch // from the configuration document
+	discovered   map[string]watch // recovered from fact units + added by webhooks since
+	pendingDisc  map[string]watch // added by webhooks since the last recovery listing
+	watches      map[string]watch // explicit ∪ discovered, explicit winning
+	discovery    discovery
 	pollInterval time.Duration
 	configHash   string
 	configError  string
@@ -48,6 +68,7 @@ type repoStatus struct {
 	Repository  string            `json:"repository"`
 	Space       string            `json:"space"`
 	Unit        string            `json:"unit"`
+	Discovered  bool              `json:"discovered"`
 	LastAttempt time.Time         `json:"lastAttempt,omitempty"`
 	LastSuccess time.Time         `json:"lastSuccess,omitempty"`
 	LastWrite   time.Time         `json:"lastWrite,omitempty"`
@@ -61,6 +82,9 @@ func newReconciler(cfg config, hub *hubClient, gh *githubClient) *reconciler {
 		cfg:          cfg,
 		hub:          hub,
 		gh:           gh,
+		explicit:     map[string]watch{},
+		discovered:   map[string]watch{},
+		pendingDisc:  map[string]watch{},
 		watches:      map[string]watch{},
 		pollInterval: cfg.PollInterval,
 		status:       map[string]*repoStatus{},
@@ -70,8 +94,9 @@ func newReconciler(cfg config, hub *hubClient, gh *githubClient) *reconciler {
 }
 
 // Run blocks until ctx is cancelled. Each cycle re-reads the configuration
-// document and enqueues every repository; a single worker drains the queue so
-// reconciles never run concurrently against the same unit.
+// document, recovers discovered repositories, and enqueues every repository; a
+// single worker drains the queue so reconciles never run concurrently against
+// the same unit.
 func (r *reconciler) Run(ctx context.Context) error {
 	go r.worker(ctx)
 	for {
@@ -98,6 +123,9 @@ func (r *reconciler) cycle(ctx context.Context) {
 		r.mu.Lock()
 		r.configError = err.Error()
 		r.mu.Unlock()
+	}
+	if err := r.recoverDiscovered(ctx); err != nil {
+		log.Printf("[ERROR] discovery: %v (keeping the previously known repositories)", err)
 	}
 	r.mu.RLock()
 	keys := make([]string, 0, len(r.watches))
@@ -128,30 +156,29 @@ func (r *reconciler) reloadConfig(ctx context.Context) error {
 	if unchanged {
 		return nil
 	}
-	interval, watches, err := parseBotConfig(data, r.cfg.ConfigSpace)
+	parsed, err := parseBotConfig(data, r.cfg.ConfigSpace)
 	if err != nil {
 		return err
 	}
+	interval := parsed.Interval
 	if interval == 0 {
 		interval = r.cfg.PollInterval
 	}
-	m := make(map[string]watch, len(watches))
-	for _, w := range watches {
+	m := make(map[string]watch, len(parsed.Watches))
+	for _, w := range parsed.Watches {
 		m[w.Key] = w
 	}
 	r.mu.Lock()
-	r.watches = m
+	r.explicit = m
+	r.discovery = parsed.Discovery
 	r.pollInterval = interval
 	r.configHash = hash
 	r.configError = ""
-	for k := range r.status {
-		if _, still := m[k]; !still {
-			delete(r.status, k)
-		}
-	}
+	r.rebuildLocked()
 	r.mu.Unlock()
-	log.Printf("[INFO] config: loaded %d repositories, poll interval %s", len(watches), interval)
-	for _, w := range watches {
+	log.Printf("[INFO] config: loaded %d repositories, poll interval %s, discovery from webhooks: %v",
+		len(parsed.Watches), interval, parsed.Discovery.Enabled)
+	for _, w := range parsed.Watches {
 		names := make([]string, 0, len(w.Streams))
 		for _, s := range w.Streams {
 			names = append(names, s.Name)
@@ -159,6 +186,102 @@ func (r *reconciler) reloadConfig(ctx context.Context) error {
 		log.Printf("[INFO] config: watching %s -> unit %s in space %s (streams: %v)", w.Key, w.Unit, w.Space, names)
 	}
 	return nil
+}
+
+// recoverDiscovered rebuilds the discovered set from the fact units in the
+// discovery space, so a restart forgets nothing and a deleted fact unit ends
+// the watch. Repositories a webhook added since the last listing are kept
+// until their first reconcile has created the unit.
+func (r *reconciler) recoverDiscovered(ctx context.Context) error {
+	r.mu.RLock()
+	d := r.discovery
+	r.mu.RUnlock()
+	if !d.Enabled {
+		r.mu.Lock()
+		if len(r.discovered) > 0 || len(r.pendingDisc) > 0 {
+			r.discovered = map[string]watch{}
+			r.pendingDisc = map[string]watch{}
+			r.rebuildLocked()
+		}
+		r.mu.Unlock()
+		return nil
+	}
+	spaceID, err := r.hub.spaceID(ctx, d.space)
+	if err != nil {
+		return err
+	}
+	units, err := r.hub.listUnits(ctx, spaceID)
+	if err != nil {
+		return err
+	}
+	found := map[string]watch{}
+	for _, u := range units {
+		if u.Labels[labelManaged] != "true" || u.Labels[labelRepository] == "" {
+			continue
+		}
+		ref, err := parseRepository(u.Labels[labelRepository])
+		if err != nil || !d.allows(ref) {
+			continue
+		}
+		found[ref.String()] = d.watchFor(ref, u.Slug)
+	}
+	r.mu.Lock()
+	for key, w := range r.pendingDisc {
+		if _, ok := found[key]; !ok {
+			found[key] = w
+		}
+	}
+	r.pendingDisc = map[string]watch{}
+	before := len(r.discovered)
+	r.discovered = found
+	r.rebuildLocked()
+	r.mu.Unlock()
+	if len(found) != before {
+		log.Printf("[INFO] discovery: %d discovered repositories in space %s", len(found), d.space)
+	}
+	return nil
+}
+
+// rebuildLocked recomputes the merged watch map. Caller holds r.mu.
+func (r *reconciler) rebuildLocked() {
+	m := make(map[string]watch, len(r.explicit)+len(r.discovered))
+	for k, w := range r.discovered {
+		if r.discovery.allows(w.Repo) {
+			m[k] = w
+		}
+	}
+	for k, w := range r.explicit {
+		m[k] = w
+	}
+	r.watches = m
+	for k := range r.status {
+		if _, still := m[k]; !still {
+			delete(r.status, k)
+		}
+	}
+}
+
+// discover admits a repository named by a webhook, when the policy allows it,
+// and returns its watch. An explicit repository is returned as is.
+func (r *reconciler) discover(key string) (watch, bool) {
+	ref, err := parseRepository(key)
+	if err != nil {
+		return watch{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if w, ok := r.watches[ref.String()]; ok {
+		return w, true
+	}
+	if !r.discovery.allows(ref) {
+		return watch{}, false
+	}
+	w := r.discovery.watchFor(ref, "")
+	r.discovered[w.Key] = w
+	r.pendingDisc[w.Key] = w
+	r.watches[w.Key] = w
+	log.Printf("[INFO] discovery: now watching %s -> unit %s in space %s", w.Key, w.Unit, w.Space)
+	return w, true
 }
 
 // readConfigDocument returns the document and a hash identifying its content.
@@ -323,22 +446,29 @@ func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus)
 
 // factUnit is the shape of a fact unit the bot creates. The labels let a
 // filter or query find every fact unit, or the one for a given repository,
-// without parsing data.
+// without parsing data, and are what discovery recovers from.
 func factUnit(w watch) goclientnew.Unit {
 	return goclientnew.Unit{
 		Slug:          w.Unit,
 		DisplayName:   displayName(w.Repo),
 		ToolchainType: string(workerapi.ToolchainAppConfigYAML),
 		Labels: map[string]string{
-			"registrybot.confighub.com/managed":    "true",
-			"registrybot.confighub.com/registry":   w.Repo.Registry,
-			"registrybot.confighub.com/repository": w.Key,
+			labelManaged:    "true",
+			labelRegistry:   w.Repo.Registry,
+			labelRepository: w.Key,
 		},
 		Annotations: map[string]string{
 			"registrybot.confighub.com/schema": factSchema,
 		},
 		LastChangeDescription: "registrybot created fact unit for " + w.Key,
 	}
+}
+
+// displayName is the human-facing name of a fact unit. ConfigHub's DisplayName
+// rejects "/" and ":", so the repository is spelled with spaces
+// ("confighub argobot"); the exact repository is on the unit's labels.
+func displayName(ref repoRef) string {
+	return strings.ReplaceAll(ref.Owner+" "+ref.Name, "/", " ")
 }
 
 func (r *reconciler) statusFor(w watch) *repoStatus {
@@ -349,7 +479,7 @@ func (r *reconciler) statusFor(w watch) *repoStatus {
 		st = &repoStatus{Repository: w.Key}
 		r.status[w.Key] = st
 	}
-	st.Space, st.Unit = w.Space, w.Unit
+	st.Space, st.Unit, st.Discovered = w.Space, w.Unit, w.Discovered
 	return st
 }
 
@@ -360,6 +490,7 @@ type snapshot struct {
 	ConfigSource string       `json:"configSource"`
 	ConfigError  string       `json:"configError,omitempty"`
 	Webhooks     bool         `json:"webhooksEnabled"`
+	Discovery    bool         `json:"discoveryEnabled"`
 	Repositories []repoStatus `json:"repositories"`
 }
 
@@ -376,6 +507,7 @@ func (r *reconciler) snapshot() snapshot {
 		ConfigSource: source,
 		ConfigError:  r.configError,
 		Webhooks:     r.cfg.WebhookSecret != "",
+		Discovery:    r.discovery.Enabled,
 		Repositories: []repoStatus{},
 	}
 	keys := make([]string, 0, len(r.status))
@@ -387,11 +519,4 @@ func (r *reconciler) snapshot() snapshot {
 		s.Repositories = append(s.Repositories, *r.status[k])
 	}
 	return s
-}
-
-// displayName is the human-facing name of a fact unit. ConfigHub's DisplayName
-// rejects "/" and ":", so the repository is spelled with spaces
-// ("confighub argobot"); the exact repository is on the unit's labels.
-func displayName(ref repoRef) string {
-	return strings.ReplaceAll(ref.Owner+" "+ref.Name, "/", " ")
 }

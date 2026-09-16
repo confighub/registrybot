@@ -9,6 +9,9 @@
 #     registrybot examples/registrybot-config.yaml
 #
 # Every key except repositories[].repository is optional.
+#
+# With an organization-level webhook, discovery lets images that are not listed
+# here get fact units too; see the discovery section below.
 
 # How often to poll GitHub for every repository. Overrides the bot's
 # REGISTRYBOT_POLL_INTERVAL. Webhooks make the bot look sooner; polling is what
@@ -28,6 +31,14 @@ defaults:
   streams:
     # Highest release version, prereleases excluded.
     stable: { semver: ">=0.0.0" }
+
+# Opt-in: a signed package webhook for a repository not listed below creates
+# a fact unit for it (using defaults) and polls it from then on. The fact units
+# are the record; delete one to stop watching. Off unless fromWebhooks is true.
+discovery:
+  fromWebhooks: true
+  owners: [confighub, confighubai]
+  exclude: ["-preview$"]
 
 repositories:
   # Minimal: the built-in streams, defaults for everything else. Fact unit slug

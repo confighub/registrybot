@@ -23,11 +23,12 @@ func sign(secret string, body []byte) string {
 func newTestReconciler(t *testing.T) *reconciler {
 	t.Helper()
 	r := newReconciler(config{PollInterval: defaultPollInterval, ConfigSpace: "facts"}, nil, nil)
-	_, watches, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/argobot\n"), "facts")
+	p, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/argobot\n"), "facts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range watches {
+	for _, w := range p.Watches {
+		r.explicit[w.Key] = w
 		r.watches[w.Key] = w
 	}
 	return r

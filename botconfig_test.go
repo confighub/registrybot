@@ -56,7 +56,8 @@ repositories:
       stable: {pattern: "^latest$"}
       semver: {semver: "<1.0.0"}
 `
-	interval, watches, err := parseBotConfig([]byte(doc), "fallback")
+	p, err := parseBotConfig([]byte(doc), "fallback")
+	interval, watches := p.Interval, p.Watches
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +97,8 @@ func names(streams []stream) string {
 }
 
 func TestParseBotConfigFallbackSpaceAndSlug(t *testing.T) {
-	_, watches, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/configs/argobot\n"), "cfgspace")
+	p, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/configs/argobot\n"), "cfgspace")
+	watches := p.Watches
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestParseBotConfigErrors(t *testing.T) {
 		"missing repo":   "defaults: {space: s}\nrepositories:\n  - unit: x\n",
 	}
 	for name, doc := range cases {
-		if _, _, err := parseBotConfig([]byte(doc), ""); err == nil {
+		if _, err := parseBotConfig([]byte(doc), ""); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
 	}

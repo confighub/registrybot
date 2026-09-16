@@ -81,6 +81,19 @@ repositories:
 
 A stream with `semver` is the highest tag that parses as a release version (`v1.2.3`, `1.2.3`, `1.2.3-rc.1`; strict `MAJOR.MINOR.PATCH`) and satisfies the constraint. A stream with only `pattern` is the most recently pushed tag matching it. Both together narrow by pattern first. The built-in `newest` and `semver` streams are always present unless you redefine them.
 
+### Discovery
+
+By default the document is an allowlist: a webhook for an unlisted repository is acknowledged and ignored. With `discovery.fromWebhooks: true`, a signed `package` event for an unlisted repository whose owner the policy admits creates a fact unit for it from `defaults` and polls it from then on. This is what makes an organization-level webhook useful: every image the organization publishes gets a fact unit without anyone editing the document.
+
+```yaml
+discovery:
+  fromWebhooks: true
+  owners: [confighub, confighubai]          # registry namespaces allowed; empty = any
+  exclude: ["^confighub/ui-preview-", "-preview$"]   # "<owner>/<name>" patterns to ignore
+```
+
+The fact units are the record. At every cycle the bot lists the units in the default space that carry its `registrybot.confighub.com/repository` label and watches those, so a restart forgets nothing and the bot never edits its own configuration. To stop watching a discovered repository, delete its fact unit or tighten the policy; an entry in `repositories` always takes precedence over a discovered one for the same repository.
+
 ## Configuration
 
 Process configuration is environment only. Everything about *what* to watch lives in the configuration document above.
@@ -103,7 +116,7 @@ Process configuration is environment only. Everything about *what* to watch live
 
 Exactly one ConfigHub credential kind must be set; the bot refuses to guess between two.
 
-HTTP endpoints: `POST /webhooks/github` (signature-checked), `GET /healthz`, `GET /status` (what is watched, last attempt/success/write per repository, current stream tags).
+HTTP endpoints: `POST /webhooks/github` (signature-checked), `GET /healthz`, `GET /status` (what is watched and whether it was discovered, last attempt/success/write per repository, current stream tags).
 
 ## Setup
 
@@ -142,7 +155,7 @@ REGISTRYBOT_CONFIG_FILE=examples/registrybot-config.yaml CONFIGHUB_TOKEN=$(cub a
 
 ### Webhooks
 
-Polling alone is complete; webhooks add immediacy. Set `GITHUB_WEBHOOK_SECRET`, expose `POST /webhooks/github` to GitHub, and add a webhook on the organization (or repository) with content type `application/json`, the same secret, and the **Packages** event selected. GitHub's ping is answered with 200; deliveries for repositories the bot does not watch are answered with 202 and ignored.
+Polling alone is complete; webhooks add immediacy, and with discovery enabled they are also how new repositories enter. Set `GITHUB_WEBHOOK_SECRET`, expose `POST /webhooks/github` to GitHub, and add a webhook on the organization (or repository) with content type `application/json`, the same secret, and only the **Packages** event selected. Organization webhooks see every package in the organization; repository webhooks see only packages linked to that repository. GitHub's ping is answered with 200; deliveries for repositories the bot does not watch and does not discover are answered with 202 and ignored.
 
 ## Deploy
 
@@ -175,6 +188,7 @@ Every image carries its third-party notices at `/app/THIRD_PARTY_LICENSES.txt` a
 This is a working prototype built to explore what a registry integration looks like as a plain ConfigHub client and what a "fact unit" should contain. Known limits and likely next steps:
 
 - **ghcr.io only.** Observation goes through the GitHub Packages API. An OCI distribution backend (`/v2/<name>/tags/list` plus manifest HEADs) would cover any registry and public images without a token, at the cost of timestamps.
+- **Discovery is webhook-only.** A repository that never fires a webhook (published before the hook existed) is not discovered; list it explicitly or push once. A `discovery.fromListing` that enumerates an organization's packages would close that gap.
 - **Configuration reload is by polling.** Subscribing to ConfigHub's event log for changes to the configuration unit would make edits take effect at once.
 - **Single replica.** Two instances would race on the same units. Leader election is unnecessary at this scale; a per-repository sharding key would be the way to scale out.
 - **Schema.** `registrybot.confighub.com/v1alpha1` will change as consumers tell us what they need to link to.

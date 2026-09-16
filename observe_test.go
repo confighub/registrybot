@@ -12,14 +12,14 @@ import (
 
 func testWatch(t *testing.T, yamlDoc string) watch {
 	t.Helper()
-	_, watches, err := parseBotConfig([]byte(yamlDoc), "facts")
+	p, err := parseBotConfig([]byte(yamlDoc), "facts")
 	if err != nil {
 		t.Fatalf("parseBotConfig: %v", err)
 	}
-	if len(watches) != 1 {
-		t.Fatalf("want 1 watch, got %d", len(watches))
+	if len(p.Watches) != 1 {
+		t.Fatalf("want 1 watch, got %d", len(p.Watches))
 	}
-	return watches[0]
+	return p.Watches[0]
 }
 
 func at(day int) time.Time { return time.Date(2026, 9, day, 12, 0, 0, 0, time.UTC) }

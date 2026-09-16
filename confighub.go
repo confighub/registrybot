@@ -323,3 +323,23 @@ func (h *hubClient) uploadUnitData(ctx context.Context, spaceID, unitID uuid.UUI
 		return res, nil
 	})
 }
+
+// listUnits returns every unit in a space with its metadata (labels, hashes),
+// no data. Discovery recovers its repositories from this.
+func (h *hubClient) listUnits(ctx context.Context, spaceID uuid.UUID) ([]goclientnew.Unit, error) {
+	var units []goclientnew.Unit
+	err := h.do(func(api *goclientnew.ClientWithResponses) (cubapi.APIResponse, error) {
+		res, err := api.ListUnitsWithResponse(ctx, spaceID, &goclientnew.ListUnitsParams{})
+		if cubapi.IsAPIError(err, res) {
+			return res, fmt.Errorf("listing units: %w", cubapi.InterpretErrorGeneric(err, res))
+		}
+		units = units[:0]
+		for _, eu := range *res.JSON200 {
+			if eu.Unit != nil {
+				units = append(units, *eu.Unit)
+			}
+		}
+		return res, nil
+	})
+	return units, err
+}

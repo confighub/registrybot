@@ -112,8 +112,17 @@ func githubWebhookHandler(secret string, r *reconciler) http.HandlerFunc {
 			return
 		}
 		if _, watched := r.lookup(key); !watched {
-			log.Printf("[INFO] webhook: %s %s for %s, which is not watched; ignored", event, payload.Action, key)
-			writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": false})
+			// Not in the document. Discovery may admit it; the delivery is signed,
+			// so the repository is one the webhook owner publishes. Whatever the
+			// payload claims about it is still ignored: the reconcile reads GitHub.
+			if _, ok := r.discover(key); !ok {
+				log.Printf("[INFO] webhook: %s %s for %s, which is not watched; ignored", event, payload.Action, key)
+				writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": false})
+				return
+			}
+			log.Printf("[INFO] webhook: %s %s for %s; discovered, reconciling", event, payload.Action, key)
+			r.enqueue(key)
+			writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": true, "discovered": true})
 			return
 		}
 		log.Printf("[INFO] webhook: %s %s for %s; reconciling", event, payload.Action, key)

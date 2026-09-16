@@ -24,23 +24,43 @@ import (
 //	defaults:
 //	  space: registry-facts
 //	  exclude: ["^sha-", "^pr-"]
+//	discovery:
+//	  fromWebhooks: true
+//	  owners: [confighub]
 //	repositories:
 //	  - repository: ghcr.io/confighub/argobot
 //	    streams:
 //	      stable: {semver: ">=0.1.0 <1.0.0"}
 //	      main:   {pattern: "^main$"}
 type botConfig struct {
-	PollInterval string       `yaml:"pollInterval"`
-	Defaults     repoDefaults `yaml:"defaults"`
-	Repositories []repoConfig `yaml:"repositories"`
+	PollInterval string          `yaml:"pollInterval"`
+	Defaults     repoDefaults    `yaml:"defaults"`
+	Discovery    discoveryConfig `yaml:"discovery"`
+	Repositories []repoConfig    `yaml:"repositories"`
 }
 
-// repoDefaults are applied to every repository that does not set the field.
+// repoDefaults are applied to every repository that does not set the field,
+// and to every discovered repository.
 type repoDefaults struct {
 	Space   string                  `yaml:"space"`
 	Streams map[string]streamConfig `yaml:"streams"`
 	Exclude []string                `yaml:"exclude"`
 	Limit   int                     `yaml:"limit"`
+}
+
+// discoveryConfig lets the bot start watching repositories it was not told
+// about. With fromWebhooks set, a signed package event for an unlisted
+// repository creates a fact unit for it (using defaults) and polls it from
+// then on. The fact unit is the record: discovered repositories are recovered
+// from the labeled units in the default space at every cycle, and deleting a
+// fact unit forgets the repository.
+type discoveryConfig struct {
+	FromWebhooks bool `yaml:"fromWebhooks"`
+	// Owners restricts discovery to these registry namespaces (organizations
+	// or users). Empty means any owner the webhook secret vouches for.
+	Owners []string `yaml:"owners"`
+	// Exclude drops repositories whose "<owner>/<name>" matches any pattern.
+	Exclude []string `yaml:"exclude"`
 }
 
 // repoConfig is one watched container repository and the fact unit it feeds.
@@ -86,13 +106,14 @@ const (
 
 // watch is a repoConfig after defaults are applied and patterns compiled.
 type watch struct {
-	Key     string // canonical repository, e.g. ghcr.io/confighub/argobot
-	Repo    repoRef
-	Space   string
-	Unit    string
-	Streams []stream
-	Exclude []*regexp.Regexp
-	Limit   int
+	Key        string // canonical repository, e.g. ghcr.io/confighub/argobot
+	Repo       repoRef
+	Space      string
+	Unit       string
+	Streams    []stream
+	Exclude    []*regexp.Regexp
+	Limit      int
+	Discovered bool // watched because of a webhook or a recovered fact unit, not the document
 }
 
 type stream struct {
@@ -110,6 +131,55 @@ type repoRef struct {
 }
 
 func (r repoRef) String() string { return r.Registry + "/" + r.Owner + "/" + r.Name }
+
+// parsedConfig is the resolved configuration document.
+type parsedConfig struct {
+	Interval  time.Duration // zero when the document does not set one
+	Watches   []watch       // explicit repositories, in document order
+	Discovery discovery
+}
+
+// discovery is discoveryConfig resolved: the policy plus the template a
+// discovered repository's watch is stamped from.
+type discovery struct {
+	Enabled bool
+	owners  map[string]bool
+	exclude []*regexp.Regexp
+
+	space   string
+	streams []stream
+	tagExcl []*regexp.Regexp
+	limit   int
+}
+
+// allows reports whether the policy admits the repository.
+func (d discovery) allows(ref repoRef) bool {
+	if !d.Enabled {
+		return false
+	}
+	if len(d.owners) > 0 && !d.owners[ref.Owner] {
+		return false
+	}
+	return !excluded(d.exclude, ref.Owner+"/"+ref.Name)
+}
+
+// watchFor builds the watch for a discovered repository. unitSlug names an
+// existing fact unit to reuse; empty derives the slug.
+func (d discovery) watchFor(ref repoRef, unitSlug string) watch {
+	if unitSlug == "" {
+		unitSlug = slugify(ref.Owner, ref.Name)
+	}
+	return watch{
+		Key:        ref.String(),
+		Repo:       ref,
+		Space:      d.space,
+		Unit:       unitSlug,
+		Streams:    d.streams,
+		Exclude:    d.tagExcl,
+		Limit:      d.limit,
+		Discovered: true,
+	}
+}
 
 // parseRepository accepts "ghcr.io/owner/name[/more][:tag|@digest]" and returns
 // the canonical, lowercased repository. Only ghcr.io is supported in this
@@ -149,77 +219,76 @@ func slugify(parts ...string) string {
 }
 
 // parseBotConfig parses and resolves the configuration document. fallbackSpace
-// is used when neither the repository nor defaults name a space. It returns the
-// poll interval (zero when the document does not set one) and the watches in a
-// stable order.
-func parseBotConfig(data []byte, fallbackSpace string) (time.Duration, []watch, error) {
+// is used when neither the repository nor defaults name a space.
+func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 	var doc botConfig
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return 0, nil, fmt.Errorf("parsing configuration: %w", err)
+		return parsedConfig{}, fmt.Errorf("parsing configuration: %w", err)
 	}
 
-	var interval time.Duration
+	var out parsedConfig
 	if doc.PollInterval != "" {
 		d, err := time.ParseDuration(doc.PollInterval)
 		if err != nil || d <= 0 {
-			return 0, nil, fmt.Errorf("pollInterval %q: want a positive duration such as 5m", doc.PollInterval)
+			return parsedConfig{}, fmt.Errorf("pollInterval %q: want a positive duration such as 5m", doc.PollInterval)
 		}
-		interval = d
+		out.Interval = d
 	}
 
 	defaultExclude, err := compilePatterns(doc.Defaults.Exclude)
 	if err != nil {
-		return 0, nil, fmt.Errorf("defaults.exclude: %w", err)
+		return parsedConfig{}, fmt.Errorf("defaults.exclude: %w", err)
 	}
 	defaultStreams, err := compileStreams(doc.Defaults.Streams)
 	if err != nil {
-		return 0, nil, fmt.Errorf("defaults.streams: %w", err)
+		return parsedConfig{}, fmt.Errorf("defaults.streams: %w", err)
 	}
+	defaultLimitValue := doc.Defaults.Limit
+	if defaultLimitValue <= 0 {
+		defaultLimitValue = defaultLimit
+	}
+	defaultSpace := firstNonEmpty(doc.Defaults.Space, fallbackSpace)
 
 	seen := map[string]int{}     // repository -> index, to reject duplicates
 	units := map[string]string{} // space/unit -> repository, to reject collisions
-	var watches []watch
 	for i, rc := range doc.Repositories {
 		where := fmt.Sprintf("repositories[%d]", i)
 		if strings.TrimSpace(rc.Repository) == "" {
-			return 0, nil, fmt.Errorf("%s: repository is required", where)
+			return parsedConfig{}, fmt.Errorf("%s: repository is required", where)
 		}
 		ref, err := parseRepository(rc.Repository)
 		if err != nil {
-			return 0, nil, fmt.Errorf("%s: %w", where, err)
+			return parsedConfig{}, fmt.Errorf("%s: %w", where, err)
 		}
 		key := ref.String()
 		if j, dup := seen[key]; dup {
-			return 0, nil, fmt.Errorf("%s: repository %s already listed at repositories[%d]", where, key, j)
+			return parsedConfig{}, fmt.Errorf("%s: repository %s already listed at repositories[%d]", where, key, j)
 		}
 		seen[key] = i
 
 		w := watch{Key: key, Repo: ref}
-		w.Space = firstNonEmpty(rc.Space, doc.Defaults.Space, fallbackSpace)
+		w.Space = firstNonEmpty(rc.Space, defaultSpace)
 		if w.Space == "" {
-			return 0, nil, fmt.Errorf("%s: no space: set space, defaults.space, or run with REGISTRYBOT_CONFIG_SPACE", where)
+			return parsedConfig{}, fmt.Errorf("%s: no space: set space, defaults.space, or run with REGISTRYBOT_CONFIG_SPACE", where)
 		}
 		w.Unit = rc.Unit
 		if w.Unit == "" {
 			w.Unit = slugify(ref.Owner, ref.Name)
 		}
 		if prev, clash := units[w.Space+"/"+w.Unit]; clash {
-			return 0, nil, fmt.Errorf("%s: unit %s in space %s is already used by %s", where, w.Unit, w.Space, prev)
+			return parsedConfig{}, fmt.Errorf("%s: unit %s in space %s is already used by %s", where, w.Unit, w.Space, prev)
 		}
 		units[w.Space+"/"+w.Unit] = key
 
 		w.Limit = rc.Limit
-		if w.Limit == 0 {
-			w.Limit = doc.Defaults.Limit
-		}
 		if w.Limit <= 0 {
-			w.Limit = defaultLimit
+			w.Limit = defaultLimitValue
 		}
 
 		if rc.Exclude != nil {
 			w.Exclude, err = compilePatterns(rc.Exclude)
 			if err != nil {
-				return 0, nil, fmt.Errorf("%s.exclude: %w", where, err)
+				return parsedConfig{}, fmt.Errorf("%s.exclude: %w", where, err)
 			}
 		} else {
 			w.Exclude = defaultExclude
@@ -227,12 +296,39 @@ func parseBotConfig(data []byte, fallbackSpace string) (time.Duration, []watch, 
 
 		own, err := compileStreams(rc.Streams)
 		if err != nil {
-			return 0, nil, fmt.Errorf("%s.streams: %w", where, err)
+			return parsedConfig{}, fmt.Errorf("%s.streams: %w", where, err)
 		}
 		w.Streams = mergeStreams(defaultStreams, own)
-		watches = append(watches, w)
+		out.Watches = append(out.Watches, w)
 	}
-	return interval, watches, nil
+
+	if doc.Discovery.FromWebhooks {
+		if defaultSpace == "" {
+			return parsedConfig{}, fmt.Errorf("discovery: no space for discovered repositories: set defaults.space or run with REGISTRYBOT_CONFIG_SPACE")
+		}
+		excl, err := compilePatterns(doc.Discovery.Exclude)
+		if err != nil {
+			return parsedConfig{}, fmt.Errorf("discovery.exclude: %w", err)
+		}
+		owners := map[string]bool{}
+		for _, o := range doc.Discovery.Owners {
+			o = strings.ToLower(strings.TrimSpace(o))
+			if o == "" {
+				return parsedConfig{}, fmt.Errorf("discovery.owners: empty owner")
+			}
+			owners[o] = true
+		}
+		out.Discovery = discovery{
+			Enabled: true,
+			owners:  owners,
+			exclude: excl,
+			space:   defaultSpace,
+			streams: mergeStreams(defaultStreams, nil),
+			tagExcl: defaultExclude,
+			limit:   defaultLimitValue,
+		}
+	}
+	return out, nil
 }
 
 func firstNonEmpty(values ...string) string {

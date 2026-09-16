@@ -20,6 +20,12 @@ A fact unit records observed state — "this repository has these tags pointing 
 
 Whether ConfigHub should mark these units differently (a toolchain, a label convention, a unit kind), how promotion should treat a link from an intent unit to a fact unit that lives outside the variant tree (#5313), and whether "the bot is the only author" should be enforced — those are the product questions this prototype is meant to inform, not answer.
 
+## Discovery
+
+An allowlist is the right default for a bot that writes, but an organization-level webhook is the interesting experiment: every image the organization publishes shows up as a fact unit with no one editing anything. Discovery is therefore opt-in and policy-bound (owners, exclusion patterns), and it keeps the intent/fact split intact. The configuration document stays pure intent; the bot never appends to it. The fact units, labeled with their repository, are the record of what has been discovered, and the bot re-derives its discovered set from them every cycle. Deleting a fact unit is how an operator says "stop", and a restart loses nothing.
+
+A webhook still carries no facts. It admits a repository into the watch set, and the reconcile that follows reads GitHub like any other.
+
 ## Configuration through ConfigHub
 
 The bot's process configuration is environment variables, and small: how to reach ConfigHub and GitHub, and where its configuration document is. What to watch — repositories, streams, exclusions, poll interval — is a document in a ConfigHub unit. The bot is already a ConfigHub client, so the marginal cost of reading its own configuration from a unit is one list call per cycle (the listing carries `DataHash`; the body is fetched only when it changed). In return the watch list has history, review, and the same tooling as everything else.
