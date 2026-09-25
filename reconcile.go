@@ -88,7 +88,6 @@ type repoStatus struct {
 	LastWrite   time.Time         `json:"lastWrite,omitempty"`
 	LastError   string            `json:"lastError,omitempty"`
 	Streams     map[string]string `json:"streams,omitempty"`
-	TagCount    int               `json:"tagCount"`
 }
 
 func newReconciler(cfg config, hub *hubClient, gh *githubClient) *reconciler {
@@ -510,7 +509,6 @@ func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus)
 	}
 
 	r.mu.Lock()
-	st.TagCount = len(doc.Tags)
 	st.Streams = map[string]string{}
 	for name, s := range doc.Streams {
 		if s != nil {

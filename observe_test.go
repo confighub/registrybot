@@ -52,13 +52,14 @@ repositories:
 	if got := doc.Streams["semver"].ImageByDigest; got != "ghcr.io/confighub/argobot@sha256:a" {
 		t.Errorf("imageByDigest: got %q", got)
 	}
-	// 7 tags across 5 tagged manifests; untagged manifest contributes none.
-	if len(doc.Tags) != 7 {
-		t.Errorf("tags: want 7, got %d: %+v", len(doc.Tags), doc.Tags)
+	// 7 tags across 5 tagged manifests; the untagged manifest contributes none.
+	entries := flattenTags(w, sampleVersions())
+	if len(entries) != 7 {
+		t.Errorf("entries: want 7, got %d: %+v", len(entries), entries)
 	}
 	// Newest first, tag name as tiebreaker.
-	if doc.Tags[0].Tag != "main" || doc.Tags[1].Tag != "sha-abc123" || doc.Tags[2].Tag != "v1.0.0-rc.1" {
-		t.Errorf("ordering: %v %v %v", doc.Tags[0].Tag, doc.Tags[1].Tag, doc.Tags[2].Tag)
+	if entries[0].Tag != "main" || entries[1].Tag != "sha-abc123" || entries[2].Tag != "v1.0.0-rc.1" {
+		t.Errorf("ordering: %v %v %v", entries[0].Tag, entries[1].Tag, entries[2].Tag)
 	}
 	if doc.ObservedAt != "2026-09-15T12:00:00Z" {
 		t.Errorf("observedAt: %q", doc.ObservedAt)
@@ -71,7 +72,6 @@ defaults:
   exclude: ["^sha-"]
 repositories:
   - repository: ghcr.io/confighub/argobot
-    limit: 3
     streams:
       stable: {semver: "<0.3.1"}
       rc:     {semver: ">=1.0.0-0", pattern: "-rc"}
@@ -90,12 +90,9 @@ repositories:
 	if s, ok := doc.Streams["none"]; !ok || s != nil {
 		t.Errorf("stream none: want present and null, got %v (present=%v)", s, ok)
 	}
-	if len(doc.Tags) != 3 {
-		t.Errorf("limit: want 3 tags, got %d", len(doc.Tags))
-	}
-	for _, tf := range doc.Tags {
-		if strings.HasPrefix(tf.Tag, "sha-") {
-			t.Errorf("excluded tag leaked: %s", tf.Tag)
+	for _, e := range flattenTags(w, sampleVersions()) {
+		if strings.HasPrefix(e.Tag, "sha-") {
+			t.Errorf("excluded tag leaked: %s", e.Tag)
 		}
 	}
 }
@@ -119,8 +116,11 @@ func TestRenderIsStableAndIgnoresObservedAt(t *testing.T) {
 	if !strings.HasPrefix(string(a), "# Facts about ghcr.io/confighub/argobot") {
 		t.Errorf("missing header: %s", a[:80])
 	}
-	if !strings.Contains(string(a), "schema: registrybot.confighub.com/v1alpha1\n") {
+	if !strings.Contains(string(a), "schema: registrybot.confighub.com/v1alpha2\n") {
 		t.Errorf("missing schema line")
+	}
+	if strings.Contains(string(a), "\ntags:") {
+		t.Errorf("the document must not carry a tag list:\n%s", a)
 	}
 
 	changed := sampleVersions()
@@ -156,7 +156,7 @@ func TestExcluded(t *testing.T) {
 func TestDescribeChange(t *testing.T) {
 	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/argobot\n")
 	got := describeChange(buildFactDoc(w, sampleVersions(), "", at(15)))
-	want := "registrybot observed ghcr.io/confighub/argobot: newest=main@c semver=v0.3.1@a (7 tags)"
+	want := "registrybot observed ghcr.io/confighub/argobot: newest=main@c semver=v0.3.1@a"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}

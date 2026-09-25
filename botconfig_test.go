@@ -42,7 +42,6 @@ func TestParseBotConfigDefaultsAndOverrides(t *testing.T) {
 pollInterval: 90s
 defaults:
   space: shared-facts
-  limit: 10
   exclude: ["^sha-"]
   streams:
     stable: {semver: ">=1.0.0"}
@@ -68,7 +67,7 @@ repositories:
 		t.Fatalf("watches: %d", len(watches))
 	}
 	a, b := watches[0], watches[1]
-	if a.Space != "shared-facts" || a.Unit != "confighub-argobot" || a.Limit != 10 || len(a.Exclude) != 1 {
+	if a.Space != "shared-facts" || a.Unit != "confighub-argobot" || len(a.Exclude) != 1 {
 		t.Errorf("a: %+v", a)
 	}
 	if names(a.Streams) != "newest semver stable" {
@@ -77,7 +76,7 @@ repositories:
 	if a.Streams[2].Constraint == nil || !a.Streams[2].Semver {
 		t.Errorf("a.stable should be a semver stream with a constraint")
 	}
-	if b.Space != "other" || b.Unit != "argobot-bundle" || len(b.Exclude) != 0 || b.Limit != 10 {
+	if b.Space != "other" || b.Unit != "argobot-bundle" || len(b.Exclude) != 0 {
 		t.Errorf("b: %+v", b)
 	}
 	if b.Streams[2].Semver || b.Streams[2].Pattern == nil {
@@ -104,9 +103,6 @@ func TestParseBotConfigFallbackSpaceAndSlug(t *testing.T) {
 	}
 	if watches[0].Space != "cfgspace" || watches[0].Unit != "confighub-configs-argobot" {
 		t.Errorf("%+v", watches[0])
-	}
-	if watches[0].Limit != defaultLimit {
-		t.Errorf("limit: %d", watches[0].Limit)
 	}
 }
 

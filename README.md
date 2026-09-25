@@ -2,7 +2,7 @@
 
 A ConfigHub bot that watches container repositories and records what they hold as ConfigHub units.
 
-For every repository it is told to watch, registrybot maintains one unit — a *fact unit* — describing the repository's current tags, their digests, and a few named *streams* that each pick out the one tag a consumer most likely wants ("newest", "semver", or streams you define such as "stable" or "main"). It learns about changes by polling the GitHub Packages API and, when a webhook is configured, by receiving GitHub `package` events that make it look sooner.
+For every repository it is told to watch, registrybot maintains one unit — a *fact unit* — holding a few named *streams* that each pick out the one tag a consumer most likely wants ("newest", "semver", or streams you define such as "stable" or "main"). It learns about changes by polling the GitHub Packages API and, when a webhook is configured, by receiving GitHub `package` events that make it look sooner.
 
 That is its whole job. What happens when a fact unit changes — which deployments pick up the new tag, through which promotion steps, with what approvals — is ConfigHub's, expressed as links from the units that consume the fact. registrybot never touches those units. See [docs/design.md](docs/design.md) for the reasoning and the fact schema.
 
@@ -15,7 +15,7 @@ Two things make registrybot look at a repository, and both lead to the same plac
 - **Polling.** Every `pollInterval` (default 5m) the bot re-reads its configuration document and enqueues every repository in it.
 - **Webhooks.** A GitHub `package` (or legacy `registry_package`) event names a repository. If that repository is watched it is enqueued once the repository has *settled*: one image push is many package events spread over a few minutes (per-architecture manifests, buildcache tags, the manifest list, the cosign signature and attestation), so the bot waits until `webhooks.settle` (default 2m) has passed with no further delivery for that repository, capped at `webhooks.maxDelay` (default 10m) from the first, and reconciles once. A poll that falls inside the window leaves the repository to the timer. Deliveries for unwatched repositories are acknowledged and ignored. Nothing in the payload is trusted: it only decides *when* to look.
 
-A single worker drains the queue. For each repository it lists the package's active versions from the GitHub Packages API, builds the fact document, and compares it with what the unit holds. If the facts changed it writes a new revision with a one-line description such as `registrybot observed ghcr.io/confighub/argobot: newest=main@9d0df3df21e0 semver=v0.3.1@2a9c5d3ee6ff (12 tags)` (each stream's tag and the first 12 characters of its digest, so a moving tag still reads as a change). If nothing changed it writes nothing, so an idle repository produces no revision churn. A fact unit that does not exist yet is created (toolchain `AppConfig/YAML`, labeled `registrybot.confighub.com/repository=<repo>`).
+A single worker drains the queue. For each repository it lists the package's active versions from the GitHub Packages API, builds the fact document, and compares it with what the unit holds. If the facts changed it writes a new revision with a one-line description such as `registrybot observed ghcr.io/confighub/argobot: newest=main@9d0df3df21e0 semver=v0.3.1@2a9c5d3ee6ff` (each stream's tag and the first 12 characters of its digest, so a moving tag still reads as a change). If nothing changed it writes nothing, so an idle repository produces no revision churn. A fact unit that does not exist yet is created (toolchain `AppConfig/YAML`, labeled `registrybot.confighub.com/repository=<repo>`).
 
 The bot holds no state it cannot rebuild from GitHub and ConfigHub. Restart it any time.
 
@@ -24,7 +24,7 @@ The bot holds no state it cannot rebuild from GitHub and ConfigHub. Restart it a
 ```yaml
 # Facts about ghcr.io/confighub/argobot, observed by registrybot from the GitHub Packages API.
 # Do not edit: the next observation overwrites this unit. Link to it instead.
-schema: registrybot.confighub.com/v1alpha1
+schema: registrybot.confighub.com/v1alpha2
 repository: ghcr.io/confighub/argobot
 registry: ghcr.io
 owner: confighub
@@ -46,16 +46,9 @@ streams:
     imageByDigest: ghcr.io/confighub/argobot@sha256:41aa…
     createdAt: "2026-09-12T10:03:17Z"
   stable: null                 # a configured stream nothing matched yet
-tags:                          # newest first, capped by limit (default 50)
-  - tag: main
-    digest: sha256:9f2c…
-    image: ghcr.io/confighub/argobot:main
-    createdAt: "2026-09-16T14:58:41Z"
-  - tag: v0.3.1
-    …
 ```
 
-Downstream units link to `streams.<name>.tag`, `streams.<name>.digest`, or `streams.<name>.image` rather than to the tag list, so that "which tag counts as stable" is decided once, in the stream definition, and every consumer follows it.
+Downstream units link to `streams.<name>.tag`, `streams.<name>.digest`, or `streams.<name>.image`, so that "which tag counts as stable" is decided once, in the stream definition, and every consumer follows it. The unit deliberately carries no list of tags: the registry already has that, nothing can link into a list by key, and the unit's revision history is the history of what each stream pointed at.
 
 ### The configuration document
 
@@ -75,7 +68,6 @@ repositories:
   - repository: ghcr.io/confighub/argobot
   - repository: ghcr.io/confighub/cubbychat
     unit: cubbychat-image           # default: <owner>-<name>
-    limit: 25
     streams:
       stable: { semver: ">=1.0.0 <2.0.0" }
       next:   { semver: ">=2.0.0-0" }    # "-0" admits prereleases
@@ -194,4 +186,4 @@ This is a working prototype built to explore what a registry integration looks l
 - **Discovery is webhook-only.** A repository that never fires a webhook (published before the hook existed) is not discovered; list it explicitly or push once. A `discovery.fromListing` that enumerates an organization's packages would close that gap.
 - **Configuration reload is by polling.** Subscribing to ConfigHub's event log for changes to the configuration unit would make edits take effect at once.
 - **Single replica.** Two instances would race on the same units. Leader election is unnecessary at this scale; a per-repository sharding key would be the way to scale out.
-- **Schema.** `registrybot.confighub.com/v1alpha1` will change as consumers tell us what they need to link to.
+- **Schema.** `registrybot.confighub.com/v1alpha2` will change as consumers tell us what they need to link to. Existing fact units keep the schema annotation they were created with; the `schema` field in the data is authoritative.

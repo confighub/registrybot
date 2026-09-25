@@ -16,13 +16,19 @@ import (
 
 // factSchema versions the fact document so a consumer can tell what it is
 // reading when the shape evolves.
-const factSchema = "registrybot.confighub.com/v1alpha1"
+const factSchema = "registrybot.confighub.com/v1alpha2"
 
 // factDoc is what registrybot writes into a fact unit: the observed state of
 // one container repository. It is a fact, not an intent — nothing here asks
 // ConfigHub to do anything. Downstream units link to paths in it (typically
 // streams.<name>.tag or streams.<name>.digest) and ConfigHub's own machinery
 // takes it from there.
+//
+// The document is the streams and nothing else. v1alpha1 also carried a list
+// of the newest tags; it was dropped because nothing can link into a list by
+// key, the unit's revisions already are the history of what each stream
+// pointed at, and every push inside the list's window wrote a revision even
+// when no stream moved.
 //
 // The document is rendered with sorted keys and a fixed field order so that an
 // unchanged repository renders byte-for-byte the same and produces no revision.
@@ -36,7 +42,6 @@ type factDoc struct {
 	URL        string                 `yaml:"url,omitempty"`
 	ObservedAt string                 `yaml:"observedAt"`
 	Streams    map[string]*streamFact `yaml:"streams"`
-	Tags       []tagFact              `yaml:"tags"`
 }
 
 // streamFact is the tag a stream currently selects. A stream with no matching
@@ -47,14 +52,6 @@ type streamFact struct {
 	Image         string `yaml:"image"`
 	ImageByDigest string `yaml:"imageByDigest"`
 	CreatedAt     string `yaml:"createdAt"`
-}
-
-// tagFact is one tag of the repository and the manifest it points at.
-type tagFact struct {
-	Tag       string `yaml:"tag"`
-	Digest    string `yaml:"digest"`
-	Image     string `yaml:"image"`
-	CreatedAt string `yaml:"createdAt"`
 }
 
 // taggedVersion is the working shape: one (tag, digest) pair. A manifest with
@@ -84,21 +81,9 @@ func buildFactDoc(w watch, versions []packageVersion, pkgURL string, now time.Ti
 		URL:        pkgURL,
 		ObservedAt: now.UTC().Format(time.RFC3339),
 		Streams:    map[string]*streamFact{},
-		Tags:       []tagFact{},
 	}
 	for _, s := range w.Streams {
 		doc.Streams[s.Name] = selectStream(s, entries, w.Key)
-	}
-	for i, e := range entries {
-		if i >= w.Limit {
-			break
-		}
-		doc.Tags = append(doc.Tags, tagFact{
-			Tag:       e.Tag,
-			Digest:    e.Digest,
-			Image:     w.Key + ":" + e.Tag,
-			CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
-		})
 	}
 	return doc
 }
@@ -251,7 +236,7 @@ func describeChange(doc factDoc) string {
 			parts = append(parts, name+"=none")
 		}
 	}
-	return fmt.Sprintf("registrybot observed %s: %s (%d tags)", doc.Repository, strings.Join(parts, " "), len(doc.Tags))
+	return fmt.Sprintf("registrybot observed %s: %s", doc.Repository, strings.Join(parts, " "))
 }
 
 // shortDigest abbreviates "sha256:<64 hex>" to its first 12 hex characters.

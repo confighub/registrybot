@@ -49,7 +49,7 @@ func TestParseDiscovery(t *testing.T) {
 	}
 	ref, _ := parseRepository("ghcr.io/confighubai/cubbychat/backend")
 	w := d.watchFor(ref, "")
-	if w.Space != "facts" || w.Unit != "confighubai-cubbychat-backend" || !w.Discovered || w.Limit != defaultLimit {
+	if w.Space != "facts" || w.Unit != "confighubai-cubbychat-backend" || !w.Discovered {
 		t.Errorf("watchFor: %+v", w)
 	}
 	if names(w.Streams) != "newest semver stable" || len(w.Exclude) != 1 {

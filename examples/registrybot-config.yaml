@@ -61,7 +61,6 @@ repositories:
   - repository: ghcr.io/confighub/cubbychat
     space: registry-facts
     unit: cubbychat-image
-    limit: 25
     exclude: ["^sha-"]
     streams:
       # Highest 1.x release.

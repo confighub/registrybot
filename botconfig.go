@@ -70,7 +70,6 @@ type repoDefaults struct {
 	Space   string                  `yaml:"space"`
 	Streams map[string]streamConfig `yaml:"streams"`
 	Exclude []string                `yaml:"exclude"`
-	Limit   int                     `yaml:"limit"`
 }
 
 // discoveryConfig lets the bot start watching repositories it was not told
@@ -101,11 +100,8 @@ type repoConfig struct {
 	// streams.<name> in the fact unit. See streamConfig.
 	Streams map[string]streamConfig `yaml:"streams"`
 	// Exclude drops tags matching any of these regular expressions before
-	// anything else is computed.
+	// the streams are computed, so an excluded tag can never head a stream.
 	Exclude []string `yaml:"exclude"`
-	// Limit caps how many tags the fact unit lists (newest first). Streams are
-	// computed over all tags regardless. Default 50.
-	Limit int `yaml:"limit"`
 }
 
 // streamConfig selects one tag out of many, which is what a downstream unit
@@ -126,7 +122,6 @@ type streamConfig struct {
 const (
 	streamNewest = "newest" // most recently pushed tag of any kind
 	streamSemver = "semver" // highest release version
-	defaultLimit = 50
 )
 
 // watch is a repoConfig after defaults are applied and patterns compiled.
@@ -137,7 +132,6 @@ type watch struct {
 	Unit       string
 	Streams    []stream
 	Exclude    []*regexp.Regexp
-	Limit      int
 	Discovered bool // watched because of a webhook or a recovered fact unit, not the document
 }
 
@@ -176,7 +170,6 @@ type discovery struct {
 	space   string
 	streams []stream
 	tagExcl []*regexp.Regexp
-	limit   int
 }
 
 // allows reports whether the policy admits the repository.
@@ -203,7 +196,6 @@ func (d discovery) watchFor(ref repoRef, unitSlug string) watch {
 		Unit:       unitSlug,
 		Streams:    d.streams,
 		Exclude:    d.tagExcl,
-		Limit:      d.limit,
 		Discovered: true,
 	}
 }
@@ -282,10 +274,6 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 	if err != nil {
 		return parsedConfig{}, fmt.Errorf("defaults.streams: %w", err)
 	}
-	defaultLimitValue := doc.Defaults.Limit
-	if defaultLimitValue <= 0 {
-		defaultLimitValue = defaultLimit
-	}
 	defaultSpace := firstNonEmpty(doc.Defaults.Space, fallbackSpace)
 
 	seen := map[string]int{}     // repository -> index, to reject duplicates
@@ -318,11 +306,6 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 			return parsedConfig{}, fmt.Errorf("%s: unit %s in space %s is already used by %s", where, w.Unit, w.Space, prev)
 		}
 		units[w.Space+"/"+w.Unit] = key
-
-		w.Limit = rc.Limit
-		if w.Limit <= 0 {
-			w.Limit = defaultLimitValue
-		}
 
 		if rc.Exclude != nil {
 			w.Exclude, err = compilePatterns(rc.Exclude)
@@ -364,7 +347,6 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 			space:   defaultSpace,
 			streams: mergeStreams(defaultStreams, nil),
 			tagExcl: defaultExclude,
-			limit:   defaultLimitValue,
 		}
 	}
 	return out, nil
