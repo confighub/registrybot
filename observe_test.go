@@ -116,8 +116,14 @@ func TestRenderIsStableAndIgnoresObservedAt(t *testing.T) {
 	if !strings.HasPrefix(string(a), "# Facts about ghcr.io/confighub/argobot") {
 		t.Errorf("missing header: %s", a[:80])
 	}
-	if !strings.Contains(string(a), "schema: registrybot.confighub.com/v1alpha2\n") {
-		t.Errorf("missing schema line")
+	if !strings.Contains(string(a), "configHub:\n    configSchema: registrybot.confighub.com/v1alpha3\n    configName: argobot\n") {
+		t.Errorf("missing configHub metadata:\n%s", a)
+	}
+	if strings.Contains(string(a), "\nschema:") {
+		t.Errorf("the schema belongs in configHub.configSchema, not a top-level field:\n%s", a)
+	}
+	if strings.Contains(string(a), "\nname:") {
+		t.Errorf("the name belongs in configHub.configName, not a top-level field:\n%s", a)
 	}
 	if strings.Contains(string(a), "\ntags:") {
 		t.Errorf("the document must not carry a tag list:\n%s", a)

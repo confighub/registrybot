@@ -24,11 +24,12 @@ The bot holds no state it cannot rebuild from GitHub and ConfigHub. Restart it a
 ```yaml
 # Facts about ghcr.io/confighub/argobot, observed by registrybot from the GitHub Packages API.
 # Do not edit: the next observation overwrites this unit. Link to it instead.
-schema: registrybot.confighub.com/v1alpha2
+configHub:
+  configSchema: registrybot.confighub.com/v1alpha3
+  configName: argobot
 repository: ghcr.io/confighub/argobot
 registry: ghcr.io
 owner: confighub
-name: argobot
 source: github-packages
 url: https://github.com/orgs/confighub/packages/container/package/argobot
 observedAt: "2026-09-16T15:12:03Z"
@@ -186,4 +187,4 @@ This is a working prototype built to explore what a registry integration looks l
 - **Discovery is webhook-only.** A repository that never fires a webhook (published before the hook existed) is not discovered; list it explicitly or push once. A `discovery.fromListing` that enumerates an organization's packages would close that gap.
 - **Configuration reload is by polling.** Subscribing to ConfigHub's event log for changes to the configuration unit would make edits take effect at once.
 - **Single replica.** Two instances would race on the same units. Leader election is unnecessary at this scale; a per-repository sharding key would be the way to scale out.
-- **Schema.** `registrybot.confighub.com/v1alpha2` will change as consumers tell us what they need to link to. Existing fact units keep the schema annotation they were created with; the `schema` field in the data is authoritative.
+- **Schema.** `registrybot.confighub.com/v1alpha3` will change as consumers tell us what they need to link to. Existing fact units keep the schema annotation they were created with; `configHub.configSchema` in the data is authoritative.
