@@ -16,7 +16,7 @@ import (
 
 // factSchema versions the fact document so a consumer can tell what it is
 // reading when the shape evolves.
-const factSchema = "registrybot.confighub.com/v1alpha2"
+const factSchema = "registrybot.confighub.com/v1alpha3"
 
 // factDoc is what registrybot writes into a fact unit: the observed state of
 // one container repository. It is a fact, not an intent — nothing here asks
@@ -30,18 +30,28 @@ const factSchema = "registrybot.confighub.com/v1alpha2"
 // pointed at, and every push inside the list's window wrote a revision even
 // when no stream moved.
 //
+// The configHub block is ConfigHub's AppConfig metadata convention: the
+// AppConfig toolchains read configHub.configSchema as the resource type and
+// configHub.configName as the resource name.
+//
 // The document is rendered with sorted keys and a fixed field order so that an
 // unchanged repository renders byte-for-byte the same and produces no revision.
 type factDoc struct {
-	Schema     string                 `yaml:"schema"`
+	ConfigHub  configHubMeta          `yaml:"configHub"`
 	Repository string                 `yaml:"repository"`
 	Registry   string                 `yaml:"registry"`
 	Owner      string                 `yaml:"owner"`
-	Name       string                 `yaml:"name"`
 	Source     string                 `yaml:"source"`
 	URL        string                 `yaml:"url,omitempty"`
 	ObservedAt string                 `yaml:"observedAt"`
 	Streams    map[string]*streamFact `yaml:"streams"`
+}
+
+// configHubMeta is the AppConfig metadata block. configName is the
+// repository's name within its owner, the last part of repository.
+type configHubMeta struct {
+	ConfigSchema string `yaml:"configSchema"`
+	ConfigName   string `yaml:"configName"`
 }
 
 // streamFact is the tag a stream currently selects. A stream with no matching
@@ -72,11 +82,10 @@ func buildFactDoc(w watch, versions []packageVersion, pkgURL string, now time.Ti
 	entries := flattenTags(w, versions)
 
 	doc := factDoc{
-		Schema:     factSchema,
+		ConfigHub:  configHubMeta{ConfigSchema: factSchema, ConfigName: w.Repo.Name},
 		Repository: w.Key,
 		Registry:   w.Repo.Registry,
 		Owner:      w.Repo.Owner,
-		Name:       w.Repo.Name,
 		Source:     sourceGitHubPackages,
 		URL:        pkgURL,
 		ObservedAt: now.UTC().Format(time.RFC3339),

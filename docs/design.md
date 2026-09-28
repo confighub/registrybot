@@ -46,12 +46,13 @@ The bot authenticates as a worker identity, the same as argobot: either the work
 
 A static token is accepted for local development and is never refreshed.
 
-## Fact schema `registrybot.confighub.com/v1alpha2`
+## Fact schema `registrybot.confighub.com/v1alpha3`
 
 | Path | Meaning |
 |---|---|
-| `schema` | This identifier |
-| `repository`, `registry`, `owner`, `name` | The canonical repository and its parts |
+| `configHub.configSchema` | This identifier |
+| `configHub.configName` | The repository's name within its owner (`argobot` in `ghcr.io/confighub/argobot`) |
+| `repository`, `registry`, `owner` | The canonical repository and its registry and owner parts |
 | `source` | How it was observed; `github-packages` |
 | `url` | The package's web page |
 | `observedAt` | When this revision was observed (RFC 3339, UTC). Ignored when deciding whether facts changed |
@@ -60,6 +61,8 @@ A static token is accepted for local development and is never refreshed.
 Untagged manifests (attestations, signatures, dangling layers) are not facts anyone deploys from and are never candidates. A manifest with several tags is a candidate once per tag.
 
 v1alpha1 also carried `tags[]`, the newest tags after exclusions with their digests. It was dropped in v1alpha2 for three reasons. Nothing could link to it: ConfigHub links are path-based and a list entry only has a positional path. It was not history either: the list was the registry's state at one observation, and the unit's revisions already record what each stream pointed at over time, per path. And it caused revisions of its own: a push that moved no stream still changed the list, and inserting one entry at the top of a newest-first list reads as every entry changing in a positional diff. The registry is the place to look for the full set of tags.
+
+v1alpha3 moved the top-level `schema` and `name` fields to `configHub.configSchema` and `configHub.configName`, following ConfigHub's AppConfig metadata convention: the AppConfig toolchains read those two paths as the resource type and name, so a fact unit's resource is now identified as `registrybot.confighub.com/v1alpha3` with the repository's name.
 
 Built-in streams: `newest` (most recently pushed tag) and `semver` (highest strict `MAJOR.MINOR.PATCH` release, prereleases excluded). Both can be redefined per repository.
 
