@@ -49,7 +49,7 @@ defaults:
 # are the record; delete one to stop watching. Off unless fromWebhooks is true.
 discovery:
   fromWebhooks: true
-  owners: [confighub, confighubai]
+  owners: [confighub, acme]
   exclude: ["-preview$"]
 
 repositories:

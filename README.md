@@ -84,7 +84,7 @@ By default the document is an allowlist: a webhook for an unlisted repository is
 ```yaml
 discovery:
   fromWebhooks: true
-  owners: [confighub, confighubai]          # registry namespaces allowed; empty = any
+  owners: [confighub, acme]          # registry namespaces allowed; empty = any
   exclude: ["^confighub/ui-preview-", "-preview$"]   # "<owner>/<name>" patterns to ignore
 ```
 

@@ -2,7 +2,7 @@
 
 ## Why this exists
 
-ConfigHub issue #5062 asks for an image updater: watch a container registry and propagate new images to every unit that deploys them. The discussion there settled the shape early — build it outside ConfigHub, like argobot and the Argo CD / Flux image updaters, and have it report back into a config unit rather than reach into deployment units directly. registrybot is that external piece, built so that we have something concrete to play with while the product-side questions (fact units versus intent units, link kinds across variants, promotion of facts) are worked out.
+An internal ConfigHub product issue (confighub#5062, private) asks for an image updater: watch a container registry and propagate new images to every unit that deploys them. The discussion there settled the shape early — build it outside ConfigHub, like argobot and the Argo CD / Flux image updaters, and have it report back into a config unit rather than reach into deployment units directly. registrybot is that external piece, built so that we have something concrete to play with while the product-side questions (fact units versus intent units, link kinds across variants, promotion of facts) are worked out.
 
 ## The one job
 
@@ -18,7 +18,7 @@ A fact unit records observed state — "this repository has these tags pointing 
 - **Revisions are observations.** A new revision means the repository changed. An unchanged repository must not produce revisions, so the renderer is deterministic and the comparison ignores `observedAt`.
 - **Selection is part of the fact.** Consumers do not want a tag list; they want *the* tag. So the document carries streams — named selections computed by the bot from a rule in the configuration — and consumers link to `streams.<name>.tag`. The rule for "stable" is written once, next to the repository, instead of in every consumer.
 
-Whether ConfigHub should mark these units differently (a toolchain, a label convention, a unit kind), how promotion should treat a link from an intent unit to a fact unit that lives outside the variant tree (#5313), and whether "the bot is the only author" should be enforced — those are the product questions this prototype is meant to inform, not answer.
+Whether ConfigHub should mark these units differently (a toolchain, a label convention, a unit kind), how promotion should treat a link from an intent unit to a fact unit that lives outside the variant tree (internal issue confighub#5313), and whether "the bot is the only author" should be enforced — those are the product questions this prototype is meant to inform, not answer.
 
 ## Discovery
 

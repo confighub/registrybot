@@ -17,7 +17,7 @@ defaults:
     stable: { semver: ">=0.0.0" }
 discovery:
   fromWebhooks: true
-  owners: [ConfigHub, confighubai]
+  owners: [ConfigHub, acme]
   exclude: ["^confighub/ui-preview", "-preview$"]
 repositories:
   - repository: ghcr.io/confighub/argobot
@@ -33,8 +33,8 @@ func TestParseDiscovery(t *testing.T) {
 	if !d.Enabled {
 		t.Fatal("discovery should be enabled")
 	}
-	allowed := []string{"ghcr.io/confighub/cubbychat", "ghcr.io/confighubai/bizops", "ghcr.io/confighub/configs/argobot"}
-	denied := []string{"ghcr.io/someone/else", "ghcr.io/confighub/ui-preview-pr-1", "ghcr.io/confighubai/hub-preview"}
+	allowed := []string{"ghcr.io/confighub/cubbychat", "ghcr.io/acme/api", "ghcr.io/confighub/configs/argobot"}
+	denied := []string{"ghcr.io/someone/else", "ghcr.io/confighub/ui-preview-pr-1", "ghcr.io/acme/api-preview"}
 	for _, s := range allowed {
 		ref, _ := parseRepository(s)
 		if !d.allows(ref) {
@@ -47,9 +47,9 @@ func TestParseDiscovery(t *testing.T) {
 			t.Errorf("%s should be denied", s)
 		}
 	}
-	ref, _ := parseRepository("ghcr.io/confighubai/cubbychat/backend")
+	ref, _ := parseRepository("ghcr.io/acme/shop/backend")
 	w := d.watchFor(ref, "")
-	if w.Space != "facts" || w.Unit != "confighubai-cubbychat-backend" || !w.Discovered {
+	if w.Space != "facts" || w.Unit != "acme-shop-backend" || !w.Discovered {
 		t.Errorf("watchFor: %+v", w)
 	}
 	if names(w.Streams) != "newest semver stable" || len(w.Exclude) != 1 {
@@ -94,14 +94,14 @@ func newDiscoveryReconciler(t *testing.T) *reconciler {
 func TestDiscoverAddsAllowedRepositoryOnce(t *testing.T) {
 	r := newDiscoveryReconciler(t)
 
-	w, ok := r.discover("ghcr.io/confighubai/bizops")
-	if !ok || !w.Discovered || w.Unit != "confighubai-bizops" {
+	w, ok := r.discover("ghcr.io/acme/api")
+	if !ok || !w.Discovered || w.Unit != "acme-api" {
 		t.Fatalf("discover: %+v %v", w, ok)
 	}
-	if _, ok := r.lookup("ghcr.io/confighubai/bizops"); !ok {
+	if _, ok := r.lookup("ghcr.io/acme/api"); !ok {
 		t.Error("discovered repository should be watched")
 	}
-	if _, ok := r.pendingDisc["ghcr.io/confighubai/bizops"]; !ok {
+	if _, ok := r.pendingDisc["ghcr.io/acme/api"]; !ok {
 		t.Error("discovered repository should be pending until recovered from its unit")
 	}
 	// Explicit entry wins and is returned unchanged.
@@ -122,9 +122,9 @@ func TestDiscoverAddsAllowedRepositoryOnce(t *testing.T) {
 
 func TestRebuildDropsDiscoveredWhenPolicyTightens(t *testing.T) {
 	r := newDiscoveryReconciler(t)
-	r.discover("ghcr.io/confighubai/bizops")
+	r.discover("ghcr.io/acme/api")
 
-	p, err := parseBotConfig([]byte(strings.Replace(discoveryDoc, "owners: [ConfigHub, confighubai]", "owners: [confighub]", 1)), "facts")
+	p, err := parseBotConfig([]byte(strings.Replace(discoveryDoc, "owners: [ConfigHub, acme]", "owners: [confighub]", 1)), "facts")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestRebuildDropsDiscoveredWhenPolicyTightens(t *testing.T) {
 	r.discovery = p.Discovery
 	r.rebuildLocked()
 	r.mu.Unlock()
-	if _, ok := r.lookup("ghcr.io/confighubai/bizops"); ok {
+	if _, ok := r.lookup("ghcr.io/acme/api"); ok {
 		t.Error("a discovered repository outside the new policy should be dropped")
 	}
 	if _, ok := r.lookup("ghcr.io/confighub/argobot"); !ok {
@@ -144,12 +144,12 @@ func TestWebhookDiscoversUnlistedRepository(t *testing.T) {
 	r := newDiscoveryReconciler(t)
 	h := githubWebhookHandler("s3cret", r)
 
-	body := []byte(strings.ReplaceAll(packageEvent, "confighub/argobot", "confighubai/bizops"))
+	body := []byte(strings.ReplaceAll(packageEvent, "confighub/argobot", "acme/api"))
 	rec := deliver(t, h, "s3cret", "package", body, true)
 	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"discovered":true`) {
 		t.Fatalf("discovered delivery: %d %s", rec.Code, rec.Body)
 	}
-	if key := <-r.queue; key != "ghcr.io/confighubai/bizops" {
+	if key := <-r.queue; key != "ghcr.io/acme/api" {
 		t.Errorf("queued %q", key)
 	}
 
