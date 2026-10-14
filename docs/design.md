@@ -65,6 +65,14 @@ v1alpha3 moved the top-level `schema` and `name` fields to `configHub.configSche
 
 v1alpha4 cut the document down to what consumers link to, because every field is a row in every diff a reviewer reads when a stream moves. `observedAt` went: the unit's revision already records when the facts changed, and the field forced the comparison to strip it before deciding whether to write. Each stream lost `image` and `imageByDigest`, which are `repository:tag` and `repository@digest` and can be put together by the consumer, and `createdAt`, which nothing linked to. The built-in `newest` and `semver` streams were replaced by a single built-in `stable`: `newest` was usually a moving tag such as `latest` or `buildcache` and churned revisions without any consumer, and `semver` was the same selection most configurations already defined as `stable`.
 
+A configuration that still wants the old streams can define them, per repository or in the defaults. The per-stream `image`, `imageByDigest` and `createdAt` fields do not come back: a stream is its `tag` and `digest`.
+
+```yaml
+streams:
+  newest: { pattern: "." }   # the most recently pushed tag of any kind
+  semver: { semver: "" }     # the highest release version, prereleases excluded
+```
+
 Built-in stream: `stable` (highest strict `MAJOR.MINOR.PATCH` release, prereleases excluded). It can be redefined per repository or in the defaults.
 
 ## What was deliberately left out
