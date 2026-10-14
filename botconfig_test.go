@@ -53,7 +53,7 @@ repositories:
     exclude: []
     streams:
       stable: {pattern: "^latest$"}
-      semver: {semver: "<1.0.0"}
+      main: {pattern: "^main$"}
 `
 	p, err := parseBotConfig([]byte(doc), "fallback")
 	interval, watches := p.Interval, p.Watches
@@ -70,20 +70,20 @@ repositories:
 	if a.Space != "shared-facts" || a.Unit != "confighub-argobot" || len(a.Exclude) != 1 {
 		t.Errorf("a: %+v", a)
 	}
-	if names(a.Streams) != "newest semver stable" {
+	if names(a.Streams) != "stable" {
 		t.Errorf("a streams: %s", names(a.Streams))
 	}
-	if a.Streams[2].Constraint == nil || !a.Streams[2].Semver {
+	if a.Streams[0].Constraint == nil || !a.Streams[0].Semver {
 		t.Errorf("a.stable should be a semver stream with a constraint")
 	}
 	if b.Space != "other" || b.Unit != "argobot-bundle" || len(b.Exclude) != 0 {
 		t.Errorf("b: %+v", b)
 	}
-	if b.Streams[2].Semver || b.Streams[2].Pattern == nil {
-		t.Errorf("b.stable should be a pattern-only stream (override), got %+v", b.Streams[2])
+	if names(b.Streams) != "main stable" {
+		t.Errorf("b streams: %s", names(b.Streams))
 	}
-	if b.Streams[1].Name != "semver" || b.Streams[1].Constraint == nil {
-		t.Errorf("b.semver built-in should be overridden with a constraint")
+	if b.Streams[1].Semver || b.Streams[1].Pattern == nil {
+		t.Errorf("b.stable should be a pattern-only stream (override), got %+v", b.Streams[1])
 	}
 }
 

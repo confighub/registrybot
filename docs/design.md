@@ -12,10 +12,10 @@ Keeping the bot on that side of the line is what makes it safe to run with broad
 
 ## Facts, not intents
 
-A fact unit records observed state — "this repository has these tags pointing at these digests, as of this time". Nothing in it asks ConfigHub to do anything. An intent unit says "deploy this". The two look alike (both are units, both are YAML) and ConfigHub does not yet distinguish them, but a few properties of fact units already follow from the definition:
+A fact unit records observed state — "this repository's streams point at these tags and digests, as of this revision". Nothing in it asks ConfigHub to do anything. An intent unit says "deploy this". The two look alike (both are units, both are YAML) and ConfigHub does not yet distinguish them, but a few properties of fact units already follow from the definition:
 
 - **The bot is the only author.** A human edit is overwritten by the next observation. The header says so.
-- **Revisions are observations.** A new revision means the repository changed. An unchanged repository must not produce revisions, so the renderer is deterministic and the comparison ignores `observedAt`.
+- **Revisions are observations.** A new revision means the repository changed. An unchanged repository must not produce revisions, so the renderer is deterministic and the document carries no observation timestamp: the revision records when it was written.
 - **Selection is part of the fact.** Consumers do not want a tag list; they want *the* tag. So the document carries streams — named selections computed by the bot from a rule in the configuration — and consumers link to `streams.<name>.tag`. The rule for "stable" is written once, next to the repository, instead of in every consumer.
 
 Whether ConfigHub should mark these units differently (a toolchain, a label convention, a unit kind), how promotion should treat a link from an intent unit to a fact unit that lives outside the variant tree (internal issue confighub#5313), and whether "the bot is the only author" should be enforced — those are the product questions this prototype is meant to inform, not answer.
@@ -46,7 +46,7 @@ The bot authenticates as a worker identity, the same as argobot: either the work
 
 A static token is accepted for local development and is never refreshed.
 
-## Fact schema `registrybot.confighub.com/v1alpha3`
+## Fact schema `registrybot.confighub.com/v1alpha4`
 
 | Path | Meaning |
 |---|---|
@@ -55,20 +55,21 @@ A static token is accepted for local development and is never refreshed.
 | `repository`, `registry`, `owner` | The canonical repository and its registry and owner parts |
 | `source` | How it was observed; `github-packages` |
 | `url` | The package's web page |
-| `observedAt` | When this revision was observed (RFC 3339, UTC). Ignored when deciding whether facts changed |
-| `streams.<name>` | The tag the stream selects: `tag`, `digest`, `image` (`repo:tag`), `imageByDigest` (`repo@digest`), `createdAt`. `null` when nothing matches |
+| `streams.<name>` | The tag the stream selects: `tag` and `digest`. `null` when nothing matches |
 
 Untagged manifests (attestations, signatures, dangling layers) are not facts anyone deploys from and are never candidates. A manifest with several tags is a candidate once per tag.
 
 v1alpha1 also carried `tags[]`, the newest tags after exclusions with their digests. It was dropped in v1alpha2 for three reasons. Nothing could link to it: ConfigHub links are path-based and a list entry only has a positional path. It was not history either: the list was the registry's state at one observation, and the unit's revisions already record what each stream pointed at over time, per path. And it caused revisions of its own: a push that moved no stream still changed the list, and inserting one entry at the top of a newest-first list reads as every entry changing in a positional diff. The registry is the place to look for the full set of tags.
 
-v1alpha3 moved the top-level `schema` and `name` fields to `configHub.configSchema` and `configHub.configName`, following ConfigHub's AppConfig metadata convention: the AppConfig toolchains read those two paths as the resource type and name, so a fact unit's resource is now identified as `registrybot.confighub.com/v1alpha3` with the repository's name.
+v1alpha3 moved the top-level `schema` and `name` fields to `configHub.configSchema` and `configHub.configName`, following ConfigHub's AppConfig metadata convention: the AppConfig toolchains read those two paths as the resource type and name, so a fact unit's resource is identified as `registrybot.confighub.com/v1alpha3` with the repository's name. ConfigHub compares AppConfig resource types without their version segment, so a schema bump does not break links that name the resource.
 
-Built-in streams: `newest` (most recently pushed tag) and `semver` (highest strict `MAJOR.MINOR.PATCH` release, prereleases excluded). Both can be redefined per repository.
+v1alpha4 cut the document down to what consumers link to, because every field is a row in every diff a reviewer reads when a stream moves. `observedAt` went: the unit's revision already records when the facts changed, and the field forced the comparison to strip it before deciding whether to write. Each stream lost `image` and `imageByDigest`, which are `repository:tag` and `repository@digest` and can be put together by the consumer, and `createdAt`, which nothing linked to. The built-in `newest` and `semver` streams were replaced by a single built-in `stable`: `newest` was usually a moving tag such as `latest` or `buildcache` and churned revisions without any consumer, and `semver` was the same selection most configurations already defined as `stable`.
+
+Built-in stream: `stable` (highest strict `MAJOR.MINOR.PATCH` release, prereleases excluded). It can be redefined per repository or in the defaults.
 
 ## What was deliberately left out
 
 - **Other registries.** The GitHub Packages API gives digests, tags, and timestamps in one call and matches what "watch ghcr.io" means. An OCI distribution backend is the path to Docker Hub, ECR, and public images without a token; the `repoRef` and `packageVersion` shapes are meant to survive that addition.
 - **Writing into consumers.** The Argo CD image updater edits the Application. Here that is a link, and doing it in the bot would duplicate ConfigHub's promotion logic badly.
-- **Digest pinning as a stream option.** `imageByDigest` is present on every stream, so a consumer can link to it today. Whether a stream should be able to say "resolve to digest" as policy is a consumer question.
+- **Digest pinning as a stream option.** `digest` is present on every stream, so a consumer can link to it today. Whether a stream should be able to say "resolve to digest" as policy is a consumer question.
 - **A hosted receiver.** Making ConfigHub itself the GitHub webhook endpoint would spare SaaS customers a deployment. The issue thread says to prove the stand-alone version first; this is that.

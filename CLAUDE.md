@@ -7,8 +7,9 @@ subpackages; one concern per file, named for it.
 
 - The bot never writes a fact it did not just read from GitHub. Webhooks only
   schedule a reconcile; they carry no data into ConfigHub. Keep it that way.
-- `observe.go` renders deterministically and `sameFacts` ignores `observedAt`;
-  a change that makes an unchanged repository produce a new revision is a bug.
+- `observe.go` renders deterministically and the bot writes only when the
+  rendered bytes differ; a change that makes an unchanged repository produce a
+  new revision (a timestamp, map-order output) is a bug.
 - Discovered repositories are recovered from labeled fact units every cycle, never
   persisted by the bot itself. Do not make the bot write to its configuration unit.
 - Process configuration is environment only (`config.go`); everything about

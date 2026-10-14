@@ -40,17 +40,14 @@ func TestBuildFactDocDefaultStreams(t *testing.T) {
 repositories:
   - repository: ghcr.io/confighub/argobot
 `)
-	doc := buildFactDoc(w, sampleVersions(), "https://example", at(15))
+	doc := buildFactDoc(w, sampleVersions(), "https://example")
 
-	if got := doc.Streams["newest"]; got == nil || got.Tag != "main" {
-		t.Errorf("newest: want main, got %+v", got)
+	if len(doc.Streams) != 1 {
+		t.Errorf("only the built-in stable stream: got %v", doc.Streams)
 	}
-	// semver excludes prereleases by default, so v1.0.0-rc.1 loses to v0.3.1.
-	if got := doc.Streams["semver"]; got == nil || got.Tag != "v0.3.1" || got.Digest != "sha256:a" {
-		t.Errorf("semver: want v0.3.1@sha256:a, got %+v", got)
-	}
-	if got := doc.Streams["semver"].ImageByDigest; got != "ghcr.io/confighub/argobot@sha256:a" {
-		t.Errorf("imageByDigest: got %q", got)
+	// stable excludes prereleases, so v1.0.0-rc.1 loses to v0.3.1.
+	if got := doc.Streams["stable"]; got == nil || *got != (streamFact{Tag: "v0.3.1", Digest: "sha256:a"}) {
+		t.Errorf("stable: want v0.3.1@sha256:a, got %+v", got)
 	}
 	// 7 tags across 5 tagged manifests; the untagged manifest contributes none.
 	entries := flattenTags(w, sampleVersions())
@@ -60,9 +57,6 @@ repositories:
 	// Newest first, tag name as tiebreaker.
 	if entries[0].Tag != "main" || entries[1].Tag != "sha-abc123" || entries[2].Tag != "v1.0.0-rc.1" {
 		t.Errorf("ordering: %v %v %v", entries[0].Tag, entries[1].Tag, entries[2].Tag)
-	}
-	if doc.ObservedAt != "2026-09-15T12:00:00Z" {
-		t.Errorf("observedAt: %q", doc.ObservedAt)
 	}
 }
 
@@ -78,9 +72,9 @@ repositories:
       branch: {pattern: "^main$"}
       none:   {pattern: "^nothing-matches$"}
 `)
-	doc := buildFactDoc(w, sampleVersions(), "", at(15))
+	doc := buildFactDoc(w, sampleVersions(), "")
 
-	cases := map[string]string{"stable": "v0.3.0", "rc": "v1.0.0-rc.1", "branch": "main", "newest": "main", "semver": "v0.3.1"}
+	cases := map[string]string{"stable": "v0.3.0", "rc": "v1.0.0-rc.1", "branch": "main"}
 	for name, want := range cases {
 		got := doc.Streams[name]
 		if got == nil || got.Tag != want {
@@ -97,26 +91,23 @@ repositories:
 	}
 }
 
-func TestRenderIsStableAndIgnoresObservedAt(t *testing.T) {
+func TestRenderIsDeterministic(t *testing.T) {
 	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/argobot\n")
-	a, err := renderFactDoc(buildFactDoc(w, sampleVersions(), "u", at(15)))
+	a, err := renderFactDoc(buildFactDoc(w, sampleVersions(), "u"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := renderFactDoc(buildFactDoc(w, sampleVersions(), "u", at(16)))
+	b, err := renderFactDoc(buildFactDoc(w, sampleVersions(), "u"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(a) == string(b) {
-		t.Fatal("observedAt should differ between renders")
-	}
-	if !sameFacts(a, b) {
-		t.Errorf("sameFacts should ignore observedAt:\n%s\n---\n%s", a, b)
+	if string(a) != string(b) {
+		t.Errorf("an unchanged repository must render the same bytes:\n%s\n---\n%s", a, b)
 	}
 	if !strings.HasPrefix(string(a), "# Facts about ghcr.io/confighub/argobot") {
 		t.Errorf("missing header: %s", a[:80])
 	}
-	if !strings.Contains(string(a), "configHub:\n    configSchema: registrybot.confighub.com/v1alpha3\n    configName: argobot\n") {
+	if !strings.Contains(string(a), "configHub:\n    configSchema: registrybot.confighub.com/v1alpha4\n    configName: argobot\n") {
 		t.Errorf("missing configHub metadata:\n%s", a)
 	}
 	if strings.Contains(string(a), "\nschema:") {
@@ -128,12 +119,22 @@ func TestRenderIsStableAndIgnoresObservedAt(t *testing.T) {
 	if strings.Contains(string(a), "\ntags:") {
 		t.Errorf("the document must not carry a tag list:\n%s", a)
 	}
+	if !strings.HasSuffix(string(a), "streams:\n    stable:\n        tag: v0.3.1\n        digest: sha256:a\n") {
+		t.Errorf("a stream should be its tag and digest and nothing else:\n%s", a)
+	}
 
 	changed := sampleVersions()
 	changed[0].Tags = []string{"v0.3.2"}
-	c, _ := renderFactDoc(buildFactDoc(w, changed, "u", at(15)))
-	if sameFacts(a, c) {
+	c, _ := renderFactDoc(buildFactDoc(w, changed, "u"))
+	if string(a) == string(c) {
 		t.Errorf("a tag change must be a fact change")
+	}
+
+	moved := sampleVersions()
+	moved[0].Digest = "sha256:a2"
+	m, _ := renderFactDoc(buildFactDoc(w, moved, "u"))
+	if string(a) == string(m) {
+		t.Errorf("a digest change under the same tag must be a fact change")
 	}
 }
 
@@ -161,8 +162,8 @@ func TestExcluded(t *testing.T) {
 
 func TestDescribeChange(t *testing.T) {
 	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/argobot\n")
-	got := describeChange(buildFactDoc(w, sampleVersions(), "", at(15)))
-	want := "registrybot observed ghcr.io/confighub/argobot: newest=main@c semver=v0.3.1@a"
+	got := describeChange(buildFactDoc(w, sampleVersions(), ""))
+	want := "registrybot observed ghcr.io/confighub/argobot: stable=v0.3.1@a"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
