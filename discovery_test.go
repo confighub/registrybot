@@ -52,7 +52,7 @@ func TestParseDiscovery(t *testing.T) {
 	if w.Space != "facts" || w.Unit != "acme-shop-backend" || !w.Discovered {
 		t.Errorf("watchFor: %+v", w)
 	}
-	if names(w.Streams) != "newest semver stable" || len(w.Exclude) != 1 {
+	if names(w.Streams) != "stable" || len(w.Exclude) != 1 {
 		t.Errorf("watchFor should carry defaults: %s %d", names(w.Streams), len(w.Exclude))
 	}
 	if w := d.watchFor(ref, "existing-slug"); w.Unit != "existing-slug" {

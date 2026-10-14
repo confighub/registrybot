@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -480,7 +481,7 @@ func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus)
 	if err != nil {
 		return err
 	}
-	doc := buildFactDoc(w, versions, pkgURL, time.Now())
+	doc := buildFactDoc(w, versions, pkgURL)
 	rendered, err := renderFactDoc(doc)
 	if err != nil {
 		return fmt.Errorf("rendering facts: %w", err)
@@ -517,7 +518,9 @@ func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus)
 	}
 	r.mu.Unlock()
 
-	if existing != nil && sameFacts(existing, rendered) {
+	// The rendering is deterministic, so an unchanged repository renders the
+	// same bytes and must not produce a revision.
+	if existing != nil && bytes.Equal(existing, rendered) {
 		return nil
 	}
 	desc := describeChange(doc)

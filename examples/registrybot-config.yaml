@@ -37,12 +37,13 @@ defaults:
   space: registry-facts
   # Tags to ignore entirely. Build-system noise is the usual reason.
   exclude: ["^sha-", "^pr-"]
-  # Streams every repository gets in addition to the built-in "newest" and
-  # "semver". A stream names one tag out of many; downstream units link to
-  # streams.<name>.tag (or .digest) rather than to a raw tag list.
+  # Streams every repository gets in addition to the built-in "stable" (the
+  # highest release version, prereleases excluded). A stream names one tag out
+  # of many; downstream units link to streams.<name>.tag (or .digest) rather
+  # than to a raw tag list.
   streams:
-    # Highest release version, prereleases excluded.
-    stable: { semver: ">=0.0.0" }
+    # Most recently pushed tag whose name is exactly "main".
+    main: { pattern: "^main$" }
 
 # Opt-in: a signed package webhook for a repository not listed below creates
 # a fact unit for it (using defaults) and polls it from then on. The fact units
@@ -53,7 +54,7 @@ discovery:
   exclude: ["-preview$"]
 
 repositories:
-  # Minimal: the built-in streams, defaults for everything else. Fact unit slug
+  # Minimal: the built-in stream, defaults for everything else. Fact unit slug
   # is derived (confighub-argobot).
   - repository: ghcr.io/confighub/argobot
 
@@ -63,11 +64,9 @@ repositories:
     unit: cubbychat-image
     exclude: ["^sha-"]
     streams:
-      # Highest 1.x release.
+      # Override the built-in: "stable" becomes the highest 1.x release.
       stable: { semver: ">=1.0.0 <2.0.0" }
       # Highest 2.x prerelease or release: a "-0" suffix admits prereleases.
       next: { semver: ">=2.0.0-0" }
-      # Most recently pushed tag whose name is exactly "main".
-      main: { pattern: "^main$" }
-      # Override a built-in: "semver" becomes 1.x only.
-      semver: { semver: "<2.0.0" }
+      # Override a default: "main" becomes the newest release-candidate build.
+      main: { pattern: "^main-rc" }

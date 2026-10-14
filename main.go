@@ -4,9 +4,9 @@
 // Command registrybot keeps ConfigHub informed about container repositories.
 //
 // For each repository it is configured to watch it maintains one ConfigHub
-// unit — a fact unit — describing what the repository currently holds: its
-// tags, their digests, and a few named streams such as "newest" and "semver"
-// that pick the tag a consumer most likely wants. It learns about changes by
+// unit — a fact unit — describing what the repository currently holds: named
+// streams such as "stable", each the tag and digest a consumer most likely
+// wants. It learns about changes by
 // polling the GitHub Packages API and, when a webhook is configured, by
 // receiving GitHub package events that make it look sooner.
 //

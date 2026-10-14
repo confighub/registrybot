@@ -118,11 +118,9 @@ type streamConfig struct {
 	Pattern string  `yaml:"pattern"`
 }
 
-// Built-in streams, added to every repository that does not define them.
-const (
-	streamNewest = "newest" // most recently pushed tag of any kind
-	streamSemver = "semver" // highest release version
-)
+// streamStable is the built-in stream, added to every repository that does not
+// define it: the highest release version, prereleases excluded.
+const streamStable = "stable"
 
 // watch is a repoConfig after defaults are applied and patterns compiled.
 type watch struct {
@@ -420,12 +418,11 @@ func compileStreams(configs map[string]streamConfig) (map[string]stream, error) 
 }
 
 // mergeStreams layers a repository's own streams over the defaults and the
-// built-ins (newest, semver), the more specific definition winning, and returns
+// built-in stable stream, the more specific definition winning, and returns
 // them sorted by name so the fact unit renders deterministically.
 func mergeStreams(defaults, own map[string]stream) []stream {
 	merged := map[string]stream{
-		streamNewest: {Name: streamNewest},
-		streamSemver: {Name: streamSemver, Semver: true},
+		streamStable: {Name: streamStable, Semver: true},
 	}
 	for name, s := range defaults {
 		merged[name] = s

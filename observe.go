@@ -16,19 +16,19 @@ import (
 
 // factSchema versions the fact document so a consumer can tell what it is
 // reading when the shape evolves.
-const factSchema = "registrybot.confighub.com/v1alpha3"
+const factSchema = "registrybot.confighub.com/v1alpha4"
 
 // factDoc is what registrybot writes into a fact unit: the observed state of
 // one container repository. It is a fact, not an intent — nothing here asks
 // ConfigHub to do anything. Downstream units link to paths in it (typically
-// streams.<name>.tag or streams.<name>.digest) and ConfigHub's own machinery
-// takes it from there.
+// streams.<name>.tag) and ConfigHub's own machinery takes it from there.
 //
-// The document is the streams and nothing else. v1alpha1 also carried a list
-// of the newest tags; it was dropped because nothing can link into a list by
-// key, the unit's revisions already are the history of what each stream
-// pointed at, and every push inside the list's window wrote a revision even
-// when no stream moved.
+// The document is the streams and nothing else, and each stream is only its tag
+// and digest. Every field is something a downstream unit links to or that tells
+// one observation from the next; anything derivable (repo:tag, repo@digest) or
+// already recorded by ConfigHub (when the unit changed) is left out, because
+// each field is one more line in every diff a reviewer reads. See docs/design.md
+// for what earlier versions carried and why it was dropped.
 //
 // The configHub block is ConfigHub's AppConfig metadata convention: the
 // AppConfig toolchains read configHub.configSchema as the resource type and
@@ -43,7 +43,6 @@ type factDoc struct {
 	Owner      string                 `yaml:"owner"`
 	Source     string                 `yaml:"source"`
 	URL        string                 `yaml:"url,omitempty"`
-	ObservedAt string                 `yaml:"observedAt"`
 	Streams    map[string]*streamFact `yaml:"streams"`
 }
 
@@ -55,13 +54,11 @@ type configHubMeta struct {
 }
 
 // streamFact is the tag a stream currently selects. A stream with no matching
-// tag is rendered as null so its absence is visible rather than silent.
+// tag is rendered as null so its absence is visible rather than silent. The
+// digest is kept so that a moving tag ("latest") still changes the facts.
 type streamFact struct {
-	Tag           string `yaml:"tag"`
-	Digest        string `yaml:"digest"`
-	Image         string `yaml:"image"`
-	ImageByDigest string `yaml:"imageByDigest"`
-	CreatedAt     string `yaml:"createdAt"`
+	Tag    string `yaml:"tag"`
+	Digest string `yaml:"digest"`
 }
 
 // taggedVersion is the working shape: one (tag, digest) pair. A manifest with
@@ -78,7 +75,7 @@ const sourceGitHubPackages = "github-packages"
 
 // buildFactDoc turns the versions GitHub reported into the fact document for
 // one watch.
-func buildFactDoc(w watch, versions []packageVersion, pkgURL string, now time.Time) factDoc {
+func buildFactDoc(w watch, versions []packageVersion, pkgURL string) factDoc {
 	entries := flattenTags(w, versions)
 
 	doc := factDoc{
@@ -88,11 +85,10 @@ func buildFactDoc(w watch, versions []packageVersion, pkgURL string, now time.Ti
 		Owner:      w.Repo.Owner,
 		Source:     sourceGitHubPackages,
 		URL:        pkgURL,
-		ObservedAt: now.UTC().Format(time.RFC3339),
 		Streams:    map[string]*streamFact{},
 	}
 	for _, s := range w.Streams {
-		doc.Streams[s.Name] = selectStream(s, entries, w.Key)
+		doc.Streams[s.Name] = selectStream(s, entries)
 	}
 	return doc
 }
@@ -156,7 +152,7 @@ func mustConstraint(s string) *semver.Constraints {
 }
 
 // selectStream picks the entry a stream names, or nil when nothing matches.
-func selectStream(s stream, entries []taggedVersion, repo string) *streamFact {
+func selectStream(s stream, entries []taggedVersion) *streamFact {
 	var pick *taggedVersion
 	for i := range entries {
 		e := &entries[i]
@@ -185,13 +181,7 @@ func selectStream(s stream, entries []taggedVersion, repo string) *streamFact {
 	if pick == nil {
 		return nil
 	}
-	return &streamFact{
-		Tag:           pick.Tag,
-		Digest:        pick.Digest,
-		Image:         repo + ":" + pick.Tag,
-		ImageByDigest: repo + "@" + pick.Digest,
-		CreatedAt:     pick.CreatedAt.UTC().Format(time.RFC3339),
-	}
+	return &streamFact{Tag: pick.Tag, Digest: pick.Digest}
 }
 
 // renderFactDoc serializes the document with a header that says where it came
@@ -204,25 +194,6 @@ func renderFactDoc(doc factDoc) ([]byte, error) {
 	header := fmt.Sprintf("# Facts about %s, observed by registrybot from the GitHub Packages API.\n"+
 		"# Do not edit: the next observation overwrites this unit. Link to it instead.\n", doc.Repository)
 	return append([]byte(header), body...), nil
-}
-
-// sameFacts reports whether two rendered documents describe the same state,
-// ignoring the observation timestamp. A repository that has not changed must
-// not produce a new revision every poll.
-func sameFacts(a, b []byte) bool {
-	return stripObservedAt(string(a)) == stripObservedAt(string(b))
-}
-
-func stripObservedAt(s string) string {
-	lines := strings.Split(s, "\n")
-	out := lines[:0]
-	for _, l := range lines {
-		if strings.HasPrefix(l, "observedAt:") {
-			continue
-		}
-		out = append(out, l)
-	}
-	return strings.Join(out, "\n")
 }
 
 // describeChange is the revision description on the fact unit: a one-line
