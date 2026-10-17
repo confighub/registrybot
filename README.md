@@ -151,8 +151,7 @@ Polling alone is complete; webhooks add immediacy, and with discovery enabled th
 `.github/workflows/release.yml` packages `manifests/` into an OCI bundle at `ghcr.io/confighub/configs/registrybot:latest`. The bundle floats, but each cut pins the concrete released image: the committed manifest says `registrybot:latest` and the workflow substitutes the current release tag before publishing, failing if the pin does not take. Load it as a component base:
 
 ```sh
-cub variant upload --component registrybot --variant base --granularity per-file \
-  oci://ghcr.io/confighub/configs/registrybot
+cub variant upload --component registrybot --variant base oci://ghcr.io/confighub/configs/registrybot
 ```
 
 ## Build and release
