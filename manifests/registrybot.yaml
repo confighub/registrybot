@@ -56,6 +56,15 @@ spec:
     spec:
       serviceAccountName: registrybot
       automountServiceAccountToken: false
+      # Meets the Pod Security Standards "restricted" level. The image runs as
+      # 1000:3000.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: registrybot
           image: ghcr.io/confighub/registrybot:latest
@@ -145,6 +154,7 @@ spec:
               memory: 128Mi
           securityContext:
             allowPrivilegeEscalation: false
+            privileged: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             capabilities:
