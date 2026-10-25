@@ -6,7 +6,7 @@ For every repository it is told to watch, registrybot maintains one unit — a *
 
 That is its whole job. What happens when a fact unit changes — which deployments pick up the new tag, through which promotion steps, with what approvals — is ConfigHub's, expressed as links from the units that consume the fact. registrybot never touches those units. See [docs/design.md](docs/design.md) for the reasoning and the fact schema.
 
-registrybot follows the [argobot](https://github.com/confighub/argobot) pattern: a small Go process built into a public image, authenticated to ConfigHub as a worker identity, deployed from a manifest that ConfigHub itself manages. Only ghcr.io is supported in this version.
+registrybot follows the [argobot](https://github.com/confighub/argobot) pattern: a small Go process built into a public image, authenticated to ConfigHub as a service account, deployed from a manifest that ConfigHub itself manages. Only ghcr.io is supported in this version.
 
 ## How it works
 
@@ -86,9 +86,7 @@ Process configuration is environment only. Everything about *what* to watch live
 | Variable | Required | Description |
 |---|---|---|
 | `CONFIGHUB_URL` | yes | ConfigHub base URL, e.g. `https://hub.confighub.com` |
-| `CONFIGHUB_WORKER_ID` / `CONFIGHUB_WORKER_SECRET` | one credential | Worker identity, as `cub worker get-envs` prints it |
-| `CONFIGHUB_AUTH_PRIVATE_KEY` | one credential | Instead of the secret: an Ed25519 private JWK registered with `cub worker key add`, inline or as a file path |
-| `CONFIGHUB_ASSERTION_AUDIENCE` | no | Only if the server sets a non-default assertion audience |
+| `CONFIGHUB_AUTH_PRIVATE_KEY` | one credential | An Ed25519 private JWK registered against a service account with `cub serviceaccount key add`, inline or as a file path |
 | `CONFIGHUB_TOKEN` | one credential | A static session token. Local development only; it is never refreshed |
 | `REGISTRYBOT_CONFIG_SPACE` | yes* | Slug of the space holding the configuration unit |
 | `REGISTRYBOT_CONFIG_UNIT` | no | Slug of the configuration unit. Default `registrybot` |
@@ -111,20 +109,29 @@ Install the `cub` CLI (see [docs.confighub.com](https://docs.confighub.com)), th
 # 1. A space for the bot's own configuration (fact units can go here too, or elsewhere).
 cub space create registrybot
 
-# 2. The worker (bot identity). Its credential is what the bot authenticates with.
-cub worker create registrybot --space registrybot
-cub worker get-envs registrybot --space registrybot     # CONFIGHUB_WORKER_ID / _SECRET
+# 2. The service account the bot runs as, and a key for it. --generate stores the
+#    private JWK at ~/.confighub/keys/registrybot.jwk and registers the public half.
+cub serviceaccount create registrybot
+cub serviceaccount key add registrybot --generate registrybot
 
-# 3. The configuration document.
+# 3. What the bot needs on the space: read the configuration unit, list, create
+#    and write fact units.
+cub space update registrybot \
+  --permission View:serviceaccount:registrybot \
+  --permission ViewChildren:serviceaccount:registrybot \
+  --permission CreateChildren:serviceaccount:registrybot \
+  --permission EditChildren:serviceaccount:registrybot
+
+# 4. The configuration document.
 cub unit create --space registrybot --toolchain AppConfig/YAML \
   registrybot examples/registrybot-config.yaml
 ```
 
-The worker's bot user inherits the creator's organization role, which is what lets it create and write units. Run the bot:
+The service account has no organization role, so it can do only what these grants allow. If fact units go to other spaces (`defaults.space` or a repository's `space` in the configuration document), grant the same on each of them. Run the bot:
 
 ```sh
 CONFIGHUB_URL=https://hub.confighub.com \
-CONFIGHUB_WORKER_ID=... CONFIGHUB_WORKER_SECRET=... \
+CONFIGHUB_AUTH_PRIVATE_KEY=~/.confighub/keys/registrybot.jwk \
 REGISTRYBOT_CONFIG_SPACE=registrybot \
 GITHUB_TOKEN=ghp_... \
 registrybot
@@ -144,7 +151,7 @@ Polling alone is complete; webhooks add immediacy, and with discovery enabled th
 
 ## Deploy
 
-`manifests/registrybot.yaml` is a complete deployment: a Namespace, a ServiceAccount (no token mounted; the bot needs no Kubernetes API access), a single-replica Deployment whose `env` list carries every supported variable, and a ClusterIP Service in front of the webhook receiver. Credentials come from a Secret named `registrybot-secrets` that the manifest deliberately does not define; supply it out of band with keys `CONFIGHUB_WORKER_ID`, `CONFIGHUB_WORKER_SECRET`, `GITHUB_TOKEN`, and optionally `GITHUB_WEBHOOK_SECRET`. How the Service is exposed to GitHub is a per-cluster decision.
+`manifests/registrybot.yaml` is a complete deployment: a Namespace, a ServiceAccount (no token mounted; the bot needs no Kubernetes API access), a single-replica Deployment whose `env` list carries every supported variable, and a ClusterIP Service in front of the webhook receiver. Credentials come from a Secret named `registrybot-secrets` that the manifest deliberately does not define; supply it out of band with keys `CONFIGHUB_AUTH_PRIVATE_KEY` (the JWK itself), `GITHUB_TOKEN`, and optionally `GITHUB_WEBHOOK_SECRET`. How the Service is exposed to GitHub is a per-cluster decision.
 
 ### Config bundle
 

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	goclientnew "github.com/confighub/sdk/core/openapi/goclient-new"
-	"github.com/confighub/sdk/core/workerapi"
 )
 
 // Labels the bot stamps on every fact unit it creates. They are how a
@@ -28,6 +27,9 @@ const (
 	labelRegistry   = "registrybot.confighub.com/registry"
 	labelRepository = "registrybot.confighub.com/repository"
 )
+
+// factToolchain is the toolchain type of every fact unit the bot creates.
+const factToolchain = "AppConfig/YAML"
 
 // reconciler owns the loop. Two things feed it — the poll timer, which
 // enqueues every watched repository, and the webhook receiver, which enqueues
@@ -541,7 +543,7 @@ func factUnit(w watch) goclientnew.Unit {
 	return goclientnew.Unit{
 		Slug:          w.Unit,
 		DisplayName:   displayName(w.Repo),
-		ToolchainType: string(workerapi.ToolchainAppConfigYAML),
+		ToolchainType: factToolchain,
 		Labels: map[string]string{
 			labelManaged:    "true",
 			labelRegistry:   w.Repo.Registry,
