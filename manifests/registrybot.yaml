@@ -13,10 +13,9 @@
 # generic registrybot-secrets --from-literal=...`). Keeping credential material
 # out of this manifest lets it float through GitOps without shipping or
 # overwriting secrets. Expected keys:
-#   CONFIGHUB_WORKER_ID, CONFIGHUB_WORKER_SECRET   worker identity (or a
-#   CONFIGHUB_AUTH_PRIVATE_KEY JWK instead of the pair; see the env list)
-#   GITHUB_TOKEN                                   read:packages
-#   GITHUB_WEBHOOK_SECRET                          optional; enables webhooks
+#   CONFIGHUB_AUTH_PRIVATE_KEY   service account's private JWK
+#   GITHUB_TOKEN                 read:packages
+#   GITHUB_WEBHOOK_SECRET        optional; enables webhooks
 #
 # The bot needs no Kubernetes API access at all: it talks only to ConfigHub and
 # GitHub. Its ServiceAccount exists so the pod runs as a named identity with
@@ -75,28 +74,22 @@ spec:
             # ── ConfigHub connection (required) ──────────────────────────────
             - name: CONFIGHUB_URL
               value: "https://hub.confighub.com"
-            # Worker identity, as `cub worker get-envs <worker>` prints it.
-            - name: CONFIGHUB_WORKER_ID
+            # The service account's private key, registered with
+            # `cub serviceaccount key add`. The value is the JWK itself or a
+            # path to it.
+            - name: CONFIGHUB_AUTH_PRIVATE_KEY
               valueFrom:
                 secretKeyRef:
                   name: registrybot-secrets
-                  key: CONFIGHUB_WORKER_ID
-            - name: CONFIGHUB_WORKER_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: registrybot-secrets
-                  key: CONFIGHUB_WORKER_SECRET
-            # Alternative: a private key registered with `cub worker key add`.
-            # Set this INSTEAD of the id/secret pair (exactly one credential
-            # kind is allowed). The value is the JWK itself or a path to it.
-            # - name: CONFIGHUB_AUTH_PRIVATE_KEY
+                  key: CONFIGHUB_AUTH_PRIVATE_KEY
+            # Local development only: a static session token, never refreshed.
+            # Set this INSTEAD of the private key (exactly one credential kind
+            # is allowed).
+            # - name: CONFIGHUB_TOKEN
             #   valueFrom:
             #     secretKeyRef:
             #       name: registrybot-secrets
-            #       key: CONFIGHUB_AUTH_PRIVATE_KEY
-            # Only if the server sets a non-default assertion audience.
-            # - name: CONFIGHUB_ASSERTION_AUDIENCE
-            #   value: "confighub-auth"
+            #       key: CONFIGHUB_TOKEN
 
             # ── Configuration document (required) ────────────────────────────
             # The AppConfig/YAML unit that says which repositories to watch.

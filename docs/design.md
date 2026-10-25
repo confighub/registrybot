@@ -42,7 +42,7 @@ One more wrinkle in what a revision says: ConfigHub treats a change description 
 
 ## Identity
 
-The bot authenticates as a worker identity, the same as argobot: either the worker secret, or a private key registered against the worker's bot user (`cub worker key add`), exchanged at `/auth/worker` for a session token that carries the bot user's organization role. Session renewal is scheduled from the token's own `exp` claim (80% of the way there, five-minute floor), and a 401 mid-flight triggers one re-authentication and retry.
+The bot authenticates as a service account, by a private key registered against it (`cub serviceaccount key add`). It signs a short-lived assertion and exchanges it at `/auth/token` (the OAuth JWT-bearer grant) for a session token that carries the service account's grants, so ConfigHub never holds a secret for it. The service account needs no organization role, only View, ViewChildren, CreateChildren and EditChildren on each space it reads its configuration from or writes fact units to. Session renewal is scheduled from the token's own `exp` claim (80% of the way there, five-minute floor), and a 401 mid-flight triggers one re-authentication and retry.
 
 A static token is accepted for local development and is never refreshed.
 

@@ -16,14 +16,11 @@ import (
 // watch comes from that document (see botconfig.go), so it can be changed
 // through ConfigHub without redeploying the bot.
 type config struct {
-	// ConfigHub connection. Exactly one credential kind must be set: a worker
-	// id+secret, a private key (JWK) registered against a worker's identity, or
-	// a static bearer token (local development; it is never refreshed).
+	// ConfigHub connection. Exactly one credential kind must be set: a private
+	// key (JWK) registered against a service account, or a static bearer token
+	// (local development; it is never refreshed).
 	ConfigHubURL       string
-	WorkerID           string
-	WorkerSecret       string
 	PrivateKey         string // inline JWK or a path to one
-	AssertionAudience  string
 	StaticToken        string
 	ConfigHubUserAgent string
 
@@ -58,20 +55,17 @@ const (
 
 func loadConfig() (config, error) {
 	cfg := config{
-		ConfigHubURL:      strings.TrimRight(os.Getenv("CONFIGHUB_URL"), "/"),
-		WorkerID:          os.Getenv("CONFIGHUB_WORKER_ID"),
-		WorkerSecret:      os.Getenv("CONFIGHUB_WORKER_SECRET"),
-		PrivateKey:        os.Getenv("CONFIGHUB_AUTH_PRIVATE_KEY"),
-		AssertionAudience: os.Getenv("CONFIGHUB_ASSERTION_AUDIENCE"),
-		StaticToken:       os.Getenv("CONFIGHUB_TOKEN"),
-		ConfigSpace:       os.Getenv("REGISTRYBOT_CONFIG_SPACE"),
-		ConfigUnit:        os.Getenv("REGISTRYBOT_CONFIG_UNIT"),
-		ConfigFile:        os.Getenv("REGISTRYBOT_CONFIG_FILE"),
-		GitHubToken:       os.Getenv("GITHUB_TOKEN"),
-		GitHubAPIURL:      strings.TrimRight(os.Getenv("GITHUB_API_URL"), "/"),
-		WebhookSecret:     os.Getenv("GITHUB_WEBHOOK_SECRET"),
-		ListenAddr:        os.Getenv("REGISTRYBOT_LISTEN_ADDR"),
-		PollInterval:      defaultPollInterval,
+		ConfigHubURL:  strings.TrimRight(os.Getenv("CONFIGHUB_URL"), "/"),
+		PrivateKey:    os.Getenv("CONFIGHUB_AUTH_PRIVATE_KEY"),
+		StaticToken:   os.Getenv("CONFIGHUB_TOKEN"),
+		ConfigSpace:   os.Getenv("REGISTRYBOT_CONFIG_SPACE"),
+		ConfigUnit:    os.Getenv("REGISTRYBOT_CONFIG_UNIT"),
+		ConfigFile:    os.Getenv("REGISTRYBOT_CONFIG_FILE"),
+		GitHubToken:   os.Getenv("GITHUB_TOKEN"),
+		GitHubAPIURL:  strings.TrimRight(os.Getenv("GITHUB_API_URL"), "/"),
+		WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET"),
+		ListenAddr:    os.Getenv("REGISTRYBOT_LISTEN_ADDR"),
+		PollInterval:  defaultPollInterval,
 	}
 	cfg.ConfigHubUserAgent = "registrybot/" + version
 
@@ -109,12 +103,6 @@ func loadConfig() (config, error) {
 	// Exactly one credential kind. Ranking them silently would make "who is the
 	// bot running as" depend on which variables happen to be set.
 	kinds := 0
-	if cfg.WorkerID != "" || cfg.WorkerSecret != "" {
-		if cfg.WorkerID == "" || cfg.WorkerSecret == "" {
-			return config{}, fmt.Errorf("CONFIGHUB_WORKER_ID and CONFIGHUB_WORKER_SECRET must be set together")
-		}
-		kinds++
-	}
 	if cfg.PrivateKey != "" {
 		kinds++
 	}
@@ -123,11 +111,10 @@ func loadConfig() (config, error) {
 	}
 	switch kinds {
 	case 0:
-		return config{}, fmt.Errorf("no ConfigHub credential: set CONFIGHUB_WORKER_ID+CONFIGHUB_WORKER_SECRET, " +
-			"CONFIGHUB_AUTH_PRIVATE_KEY, or CONFIGHUB_TOKEN")
+		return config{}, fmt.Errorf("no ConfigHub credential: set CONFIGHUB_AUTH_PRIVATE_KEY or CONFIGHUB_TOKEN")
 	case 1:
 	default:
-		return config{}, fmt.Errorf("more than one ConfigHub credential kind is set; choose one of worker secret, private key, or token")
+		return config{}, fmt.Errorf("more than one ConfigHub credential kind is set; choose one of private key or token")
 	}
 	return cfg, nil
 }

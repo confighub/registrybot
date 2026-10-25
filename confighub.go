@@ -24,11 +24,11 @@ import (
 // that renews its own session, plus the handful of unit and space operations
 // the bot needs. It is the only file that talks to the ConfigHub API.
 //
-// The bot authenticates as a worker identity (by secret or by private key), the
-// same way argobot does. A worker credential mints an ordinary session token
-// carrying the bot user's organization role, so the same client can list
-// spaces, create units, and write unit data. The static-token mode exists for
-// local development against a session you already hold; it is never refreshed.
+// The bot authenticates as a service account, by a private key registered
+// against it. The key mints an ordinary session token carrying the service
+// account's grants, so the same client can list spaces, create units, and write
+// unit data. The static-token mode exists for local development against a
+// session you already hold; it is never refreshed.
 type hubClient struct {
 	url   string
 	agent string
@@ -52,22 +52,17 @@ func newHubClient(cfg config) (*hubClient, error) {
 			return nil, err
 		}
 		h.api = api
-	case cfg.PrivateKey != "":
+	default:
 		jwk, source, err := loadPrivateJWK(cfg.PrivateKey)
 		if err != nil {
 			return nil, err
 		}
-		signer, err := cubapi.NewAssertionSigner(jwk, "", cfg.AssertionAudience)
+		signer, err := cubapi.NewAssertionSigner(jwk, "", "")
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", source, err)
 		}
 		h.authenticate = func() (*cubapi.AuthSession, error) {
 			return cubapi.PerformAssertionAuth(h.url, signer)
-		}
-	default:
-		workerID, secret := cfg.WorkerID, cfg.WorkerSecret
-		h.authenticate = func() (*cubapi.AuthSession, error) {
-			return cubapi.PerformWorkerAuth(h.url, workerID, secret)
 		}
 	}
 
