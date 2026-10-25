@@ -10,6 +10,7 @@ scripts/gen-third-party-licenses.sh; do not edit it by hand.
 
 SUMMARY (module — license type — source)
 ----------------------------------------
+  github.com/Masterminds/semver/v3                        MIT          https://github.com/Masterminds/semver/blob/v3.3.1/LICENSE.txt
   github.com/apapsch/go-jsonmerge/v2                      MIT          https://github.com/apapsch/go-jsonmerge/blob/v2.0.0/LICENSE
   github.com/bahlo/generic-list-go                        BSD-3-Clause https://github.com/bahlo/generic-list-go/blob/v0.2.0/LICENSE
   github.com/buger/jsonparser                             MIT          https://github.com/buger/jsonparser/blob/v1.1.2/LICENSE
@@ -29,7 +30,6 @@ SUMMARY (module — license type — source)
   github.com/kr/pretty                                    MIT          https://github.com/kr/pretty/blob/v0.3.1/License
   github.com/kr/text                                      MIT          https://github.com/kr/text/blob/v0.2.0/License
   github.com/mailru/easyjson                              MIT          https://github.com/mailru/easyjson/blob/v0.9.0/LICENSE
-  github.com/Masterminds/semver/v3                        MIT          https://github.com/Masterminds/semver/blob/v3.3.1/LICENSE.txt
   github.com/monochromegane/go-gitignore                  MIT          https://github.com/monochromegane/go-gitignore/blob/205db1a8cc00/LICENSE
   github.com/oapi-codegen/runtime                         Apache-2.0   https://github.com/oapi-codegen/runtime/blob/v1.1.1/LICENSE
   github.com/pkg/errors                                   BSD-2-Clause https://github.com/pkg/errors/blob/v0.9.1/LICENSE
@@ -57,6 +57,33 @@ SUMMARY (module — license type — source)
 ================================================================================
 FULL LICENSE TEXTS
 ================================================================================
+
+--------------------------------------------------------------------------------
+Module:  github.com/Masterminds/semver/v3
+License: MIT
+Source:  https://github.com/Masterminds/semver/blob/v3.3.1/LICENSE.txt
+--------------------------------------------------------------------------------
+
+Copyright (C) 2014-2019, Matt Butcher and Matt Farina
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
 
 --------------------------------------------------------------------------------
 Module:  github.com/apapsch/go-jsonmerge/v2
@@ -1860,33 +1887,6 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
---------------------------------------------------------------------------------
-Module:  github.com/Masterminds/semver/v3
-License: MIT
-Source:  https://github.com/Masterminds/semver/blob/v3.3.1/LICENSE.txt
---------------------------------------------------------------------------------
-
-Copyright (C) 2014-2019, Matt Butcher and Matt Farina
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 
 
 --------------------------------------------------------------------------------
