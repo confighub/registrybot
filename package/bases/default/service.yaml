@@ -1,0 +1,20 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+#
+# In front of the webhook receiver and the read-only /status endpoint. How it is
+# exposed to GitHub is a per-cluster decision (Ingress, Gateway, tunnel);
+# nothing here assumes one.
+apiVersion: v1
+kind: Service
+metadata:
+  name: registrybot
+  namespace: confighubplaceholder
+  labels:
+    app: registrybot
+spec:
+  selector:
+    app: registrybot
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

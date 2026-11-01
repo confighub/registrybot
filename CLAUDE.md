@@ -16,6 +16,9 @@ subpackages; one concern per file, named for it.
   *what* to watch is the configuration document (`botconfig.go`), so it can be
   changed through ConfigHub. Do not add watch-list knobs as env vars.
 - `manifests/registrybot.yaml` must list every env var, defaults filled in,
-  opt-ins commented out. Adding a variable means updating it and the README table.
+  opt-ins commented out. Adding a variable means updating it, the README table, and the
+  installer package's Deployment, `package/bases/default/deployment.yaml`
+  (`scripts/test-package.sh` checks the two have the same `env`). A release tag
+  publishes the package, pinned to the tag (`release.yml`).
 - After changing dependencies run `./scripts/gen-third-party-licenses.sh` (in
   the `golang:1.25` image if the local toolchain is older) and commit the result.
