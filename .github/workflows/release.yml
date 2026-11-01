@@ -199,7 +199,7 @@ jobs:
     env:
       PACKAGE_REPO: ghcr.io/confighub/packages/registrybot
       # package.yml tests with the same one.
-      INSTALLER_VERSION: v0.3.1
+      INSTALLER_VERSION: v0.3.2
     steps:
       - uses: actions/checkout@v7
 
