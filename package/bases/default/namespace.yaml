@@ -1,0 +1,12 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+# Renamed to the install namespace. registrybot meets the Pod Security
+# Standards restricted level.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: confighubplaceholder
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

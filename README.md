@@ -153,6 +153,10 @@ Polling alone is complete; webhooks add immediacy, and with discovery enabled th
 
 `manifests/registrybot.yaml` is a complete deployment: a Namespace, a ServiceAccount (no token mounted; the bot needs no Kubernetes API access), a single-replica Deployment whose `env` list carries every supported variable, and a ClusterIP Service in front of the webhook receiver. Credentials come from a Secret named `registrybot-secrets` that the manifest deliberately does not define; supply it out of band with keys `CONFIGHUB_AUTH_PRIVATE_KEY` (the JWK itself), `GITHUB_TOKEN`, and optionally `GITHUB_WEBHOOK_SECRET`. How the Service is exposed to GitHub is a per-cluster decision.
 
+### Installer package
+
+`package/` is an [installer](https://github.com/confighub/installer) package of the same deployment, at a pinned release. Each release tag publishes it as `oci://ghcr.io/confighub/packages/registrybot:<version>`, the release without the `v`. Upload it as the base that each cluster's variant is cloned from; see [its README](package/README.md).
+
 ### Config bundle
 
 `.github/workflows/release.yml` packages `manifests/` into an OCI bundle at `ghcr.io/confighub/configs/registrybot:latest`. The bundle floats, but each cut pins the concrete released image: the committed manifest says `registrybot:latest` and the workflow substitutes the current release tag before publishing, failing if the pin does not take. Load it as a component base:

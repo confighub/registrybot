@@ -1,0 +1,19 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  # The secret GitHub signs deliveries with. With it set, registrybot serves
+  # POST /webhooks/github; without it, the endpoint is disabled.
+  - target:
+      kind: Deployment
+      name: registrybot
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GITHUB_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: registrybot-secrets
+              key: GITHUB_WEBHOOK_SECRET

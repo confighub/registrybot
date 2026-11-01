@@ -1,0 +1,78 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+apiVersion: installer.confighub.com/v1alpha1
+kind: Package
+metadata:
+  name: registrybot
+installerMetadata:
+  # The registrybot release the package runs. release.yml sets it, and the
+  # image tag in bases/default/kustomization.yaml, from the release's tag when
+  # it publishes the package.
+  version: 0.5.0
+  # vet-pod-security-standard.
+  installerVersion: ">= 0.3.0"
+spec:
+  bases:
+    - name: default
+      path: bases/default
+      default: true
+      description: |
+        registrybot's Namespace, a ServiceAccount with no token, the
+        single-replica Deployment, and a ClusterIP Service in front of its
+        webhook receiver. It reads its credentials from the
+        registrybot-secrets Secret, supplied out of band.
+
+  components:
+    - name: webhooks
+      path: components/webhooks
+      description: |
+        Receive GitHub package webhooks at POST /webhooks/github, signed with
+        the GITHUB_WEBHOOK_SECRET key of registrybot-secrets. Exposing the
+        Service to GitHub is up to the cluster.
+
+  # Every input has a default, so an install uploaded as a base for ConfigHub
+  # variants can leave them unset, and each variant changes what differs.
+  inputs:
+    - name: config_space
+      type: string
+      default: registrybot
+      prompt: Space of registrybot's configuration Unit
+      description: |
+        The Space of the AppConfig/YAML Unit that says which repositories to
+        watch, REGISTRYBOT_CONFIG_SPACE. The Unit is named registrybot unless
+        REGISTRYBOT_CONFIG_UNIT says otherwise.
+    - name: confighub_url
+      type: string
+      default: https://hub.confighub.com
+      prompt: ConfigHub URL as the cluster reaches it
+      description: |
+        The ConfigHub server registrybot connects to.
+
+  transformers:
+    - toolchain: Kubernetes/YAML
+      description: Put registrybot in the install namespace.
+      invocations:
+        - name: set-namespace
+          args: ["{{ .Namespace }}"]
+    - toolchain: Kubernetes/YAML
+      description: Connect registrybot to ConfigHub.
+      invocations:
+        - name: set-env
+          args:
+            - registrybot
+            - "CONFIGHUB_URL={{ or .Inputs.confighub_url \"confighubplaceholder\" }}"
+            - "REGISTRYBOT_CONFIG_SPACE={{ or .Inputs.config_space \"confighubplaceholder\" }}"
+
+  validators:
+    - toolchain: Kubernetes/YAML
+      invocations:
+        - name: vet-schemas
+        - name: vet-merge-keys
+        - name: vet-format
+        # A tag must be pinned: no :latest, and no untagged image, which means
+        # latest. A colon counts as a tag only in the last path segment, so a
+        # registry port is not one.
+        - name: vet-images
+          args: ['{"DenyRegexp": "(:latest$)|^([^/]+/)*[^/:@]+$"}']
+        - name: vet-pod-security-standard
+          args: [restricted]
