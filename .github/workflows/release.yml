@@ -9,25 +9,23 @@ name: release
 #     a git tag vX.Y.Z. It is immutable per version.
 #
 #   * The config bundle floats — a single moving :latest, no semver tag of its
-#     own — but every cut pins a concrete released image inside the manifest. It
-#     is rebuilt on a new vX.Y.Z tag (pinned to that release) AND on every push to
-#     main (pinned to the current latest tag). A config-only change thus
-#     republishes the bundle at the same image version without building a new
-#     image. The pinned version is resolved from git tags, never committed, so
-#     there is no commit-to-release cycle.
+#     own — but the manifest inside it runs a concrete released image. It is
+#     rebuilt on a new vX.Y.Z tag AND on every push to main while the manifest
+#     names the latest release, so a config-only change republishes the bundle
+#     at the same image version without building a new image.
 #
 #   * The installer package is versioned as the release it runs and is published
-#     once per vX.Y.Z tag, after the image, pinned to it the same way.
+#     once per vX.Y.Z tag, after the image.
+#
+# The manifest and the package name the release they run, so the version is set
+# before the tag: scripts/set-version.sh vX.Y.Z, merged, then the tag. A tag
+# they don't name fails here, before anything is pushed.
 #
 # The bundle job is idempotent: the tarball is reproducible, so a main push that
 # did not change manifests/** re-pushes an identical digest and just re-points
 # :latest at it — a no-op. (We deliberately do not use an on.push.paths filter:
 # GitHub applies push paths filters to tag pushes too, which would make a
 # code-only release tag silently fail to trigger this workflow.)
-#
-# The committed manifest carries image ...:latest (an honest default for a raw
-# `kubectl apply`); the bundle job substitutes that with the resolved semver and
-# then asserts the pin actually happened before publishing.
 on:
   push:
     tags: ['v*']
@@ -52,6 +50,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check that the deployments name this release
+        run: scripts/set-version.sh --check "${{ github.ref_name }}"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -71,7 +72,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           # {{raw}} keeps the leading v, so the image tag equals the git tag
-          # equals the value the bundle substitutes in — no v-prefix mismatch.
+          # equals the tag the deployments name — no v-prefix mismatch.
           tags: |
             type=semver,pattern={{raw}}
             type=sha
@@ -97,9 +98,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Publish the config bundle, pinned to the resolved release version. Runs after
-  # image on a tag (needs), and also when image is skipped (config-only path) —
-  # but not if image actually failed.
+  # Publish the config bundle, whose manifest runs the release it names. Runs
+  # after image on a tag (needs), and also when image is skipped (config-only
+  # path) — but not if image actually failed.
   bundle:
     needs: [image]
     if: ${{ always() && needs.image.result != 'failure' && needs.image.result != 'cancelled' }}
@@ -119,11 +120,15 @@ jobs:
             VERSION="$(git tag --list 'v*' --sort=-v:refname | head -n1)"  # latest existing
           fi
           if [[ -z "${VERSION}" ]]; then
-            echo "No v* release tag exists yet; nothing to pin. Skipping bundle publish."
+            echo "No v* release tag exists yet. Skipping bundle publish."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" != refs/tags/v* ]] && ! scripts/set-version.sh --check "${VERSION}" 2>/dev/null; then
+            # On main, the manifest names a release not tagged yet, set for the
+            # next one: its tag publishes the bundle.
+            echo "::notice::The manifest does not run the latest release, ${VERSION}. Skipping bundle publish."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Resolved release version: ${VERSION}"
-            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "Publishing the bundle of ${VERSION}."
           fi
 
       - name: Install oras
@@ -136,27 +141,12 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             oras login ghcr.io --username "${{ github.actor }}" --password-stdin
 
-      - name: Build, pin, and verify bundle contents
+      - name: Build bundle contents
         if: steps.ver.outputs.skip != 'true'
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p out/registrybot
           cp manifests/*.yaml out/registrybot/
-
-          # Pin the floating :latest image ref to the resolved release version.
-          sed -i "s#image: ${IMAGE}:latest#image: ${IMAGE}:${VERSION}#g" out/registrybot/*.yaml
-
-          # Fail loud if any unpinned image ref survived the substitution.
-          if grep -RnE "image: ${IMAGE}:latest" out/registrybot/; then
-            echo "::error::config bundle still references ${IMAGE}:latest after pinning"
-            exit 1
-          fi
-          if ! grep -Rq "image: ${IMAGE}:${VERSION}" out/registrybot/; then
-            echo "::error::config bundle does not reference ${IMAGE}:${VERSION}"
-            exit 1
-          fi
 
       - name: Package and push bundle
         if: steps.ver.outputs.skip != 'true'
@@ -183,9 +173,7 @@ jobs:
   # Publish the installer package (package/), which runs the image just pushed,
   # as oci://ghcr.io/confighub/packages/registrybot:<version>, signed keylessly.
   # Tag events only: a package version is the release's without the "v", and is
-  # published once. Like the bundle's, the pin is the tag's, never committed:
-  # the job sets the package's version and image tag from it before testing and
-  # publishing.
+  # published once. The image job has checked that the package names the tag.
   package:
     needs: [image]
     if: startsWith(github.ref, 'refs/tags/v')
@@ -213,17 +201,6 @@ jobs:
           install -m 0755 installer-linux-amd64 /usr/local/bin/installer
           rm installer-linux-amd64 installer-linux-amd64.sha256
 
-      - name: Pin the package to this release
-        id: pin
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          yq -i '(.images[] | select(.name == strenv(IMAGE))).newTag = strenv(TAG)' package/bases/default/kustomization.yaml
-          VERSION="$VERSION" yq -i '.installerMetadata.version = strenv(VERSION)' package/installer.yaml
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
       - name: Test the package
         run: scripts/test-package.sh
 
@@ -231,12 +208,17 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | installer login ghcr.io --username "${{ github.actor }}" --password-stdin
 
       - name: Package
-        run: installer package package -o "${RUNNER_TEMP}/registrybot.tgz"
+        id: package
+        run: |
+          set -euo pipefail
+          version=$(yq -r .installerMetadata.version package/installer.yaml)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          installer package package -o "${RUNNER_TEMP}/registrybot.tgz"
 
       - name: Check whether the version is published
         id: published
         env:
-          VERSION: ${{ steps.pin.outputs.version }}
+          VERSION: ${{ steps.package.outputs.version }}
         run: |
           set -euo pipefail
           if installer list "oci://${PACKAGE_REPO}" 2>/dev/null | grep -qx "$VERSION"; then
@@ -253,7 +235,7 @@ jobs:
       - name: Push and sign
         if: steps.published.outputs.exists == 'false'
         env:
-          VERSION: ${{ steps.pin.outputs.version }}
+          VERSION: ${{ steps.package.outputs.version }}
         run: |
           set -euo pipefail
           installer push "${RUNNER_TEMP}/registrybot.tgz" "oci://${PACKAGE_REPO}:${VERSION}"

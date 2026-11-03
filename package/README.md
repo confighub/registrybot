@@ -35,7 +35,7 @@ registrybot needs the following before installing it, set up as under [Setup](..
 It needs installer 0.3.0 or later. The credentials never go to ConfigHub: put them in the `registrybot-secrets` Secret in the install namespace yourself, or with your secret store, under the keys `CONFIGHUB_AUTH_PRIVATE_KEY`, `GITHUB_TOKEN`, and, with the `webhooks` component, `GITHUB_WEBHOOK_SECRET`.
 
 ```sh
-installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.0 \
+installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.1 \
   --work-dir registrybot-my-cluster --namespace registrybot
 installer upload --work-dir registrybot-my-cluster --space registrybot-my-cluster
 kubectl create namespace registrybot
@@ -58,7 +58,7 @@ To run another image, such as a mirror's copy, pass `--set-image ghcr.io/configh
 Every input has a default, so one install can be the base that each cluster's variant is cloned from. Set what differs in each variant's `registrybot` Unit, which holds the Deployment:
 
 ```sh
-installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.0 \
+installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.1 \
   --work-dir registrybot-base --namespace registrybot
 installer upload --work-dir registrybot-base --space registrybot-base
 cub variant create --target my-cluster/target my-cluster registrybot-base

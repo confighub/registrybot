@@ -5,10 +5,10 @@ kind: Package
 metadata:
   name: registrybot
 installerMetadata:
-  # The registrybot release the package runs. release.yml sets it, and the
-  # image tag in bases/default/kustomization.yaml, from the release's tag when
-  # it publishes the package.
-  version: 0.5.0
+  # The registrybot release the package runs, without the "v". Set it, and the
+  # image tag in bases/default/kustomization.yaml, with
+  # scripts/set-version.sh before tagging the release.
+  version: 0.5.1
   # vet-pod-security-standard.
   installerVersion: ">= 0.3.0"
 spec:
