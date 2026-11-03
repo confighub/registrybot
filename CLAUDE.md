@@ -18,7 +18,9 @@ subpackages; one concern per file, named for it.
 - `manifests/registrybot.yaml` must list every env var, defaults filled in,
   opt-ins commented out. Adding a variable means updating it, the README table, and the
   installer package's Deployment, `package/bases/default/deployment.yaml`
-  (`scripts/test-package.sh` checks the two have the same `env`). A release tag
-  publishes the package, pinned to the tag (`release.yml`).
+  (`scripts/test-package.sh` checks the two have the same `env`).
+- The manifest and the package name the release they run. Before tagging `vX.Y.Z`, run
+  `scripts/set-version.sh vX.Y.Z` and merge it; `release.yml` fails for a tag
+  they don't name.
 - After changing dependencies run `./scripts/gen-third-party-licenses.sh` (in
   the `golang:1.25` image if the local toolchain is older) and commit the result.

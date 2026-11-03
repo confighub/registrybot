@@ -12,12 +12,14 @@ on:
       - package/**
       - manifests/**
       - scripts/test-package.sh
+      - scripts/set-version.sh
       - .github/workflows/package.yml
   pull_request:
     paths:
       - package/**
       - manifests/**
       - scripts/test-package.sh
+      - scripts/set-version.sh
       - .github/workflows/package.yml
   workflow_dispatch: {}
 

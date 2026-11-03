@@ -159,7 +159,7 @@ Polling alone is complete; webhooks add immediacy, and with discovery enabled th
 
 ### Config bundle
 
-`.github/workflows/release.yml` packages `manifests/` into an OCI bundle at `ghcr.io/confighub/configs/registrybot:latest`. The bundle floats, but each cut pins the concrete released image: the committed manifest says `registrybot:latest` and the workflow substitutes the current release tag before publishing, failing if the pin does not take. Load it as a component base:
+`.github/workflows/release.yml` packages `manifests/` into an OCI bundle at `ghcr.io/confighub/configs/registrybot:latest`. The bundle floats, but the manifest in it runs a concrete released image, the one it names. Load it as a component base:
 
 ```sh
 cub variant upload --component registrybot --variant base oci://ghcr.io/confighub/configs/registrybot
@@ -174,7 +174,7 @@ docker build -t ghcr.io/confighub/registrybot:dev .
 ```
 
 - `.github/workflows/build.yml` runs the tests and builds development images (`main`, `pr-N`, `sha-…`) on pushes to `main` and on PRs. No semver, no `:latest`.
-- `.github/workflows/release.yml` cuts a release on a `vX.Y.Z` tag: the semver image (plus `:latest`) and the config bundle pinned to it. The bundle is also republished on every `main` push, pinned to the latest existing tag, so a config-only change ships without a new image.
+- `.github/workflows/release.yml` cuts a release on a `vX.Y.Z` tag: the semver image (plus `:latest`), the config bundle, and the installer package. The manifest and the package name the release they run, so set it first: `scripts/set-version.sh vX.Y.Z`, merge that, then push the tag. `release.yml` fails for a tag they don't name. The bundle is also republished on every `main` push while the manifest names the latest release, so a config-only change ships without a new image.
 
 Every image carries its third-party notices at `/app/THIRD_PARTY_LICENSES.txt` and `/app/OS_LICENSE_NOTICE.txt`, and every released manifest has an SPDX SBOM attestation. After changing dependencies, run `./scripts/gen-third-party-licenses.sh` and commit the result; CI fails the PR if the committed file is stale or a copyleft dependency is linked in.
 

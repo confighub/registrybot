@@ -6,8 +6,8 @@
 # `installer setup`, for each preset, and checks the renders it has to refuse.
 # The package's validators (vet-schemas, vet-images, vet-pod-security-standard,
 # ...) run in every render. It also checks that the package runs the release
-# it is versioned as, and that its Deployment has the environment that
-# manifests/registrybot.yaml's has.
+# it is versioned as, as manifests/registrybot.yaml does, and that its
+# Deployment has the environment that manifests/registrybot.yaml's has.
 #
 # Needs installer 0.3.0 or later (or $INSTALLER), and yq on PATH, and no
 # ConfigHub server.
@@ -31,10 +31,10 @@ fail() {
   failures=$((failures + 1))
 }
 
-# The package's version is the registrybot release it runs.
+# The package's version is the registrybot release it runs, and the plain
+# manifest runs the same one.
 version="$(yq -r .installerMetadata.version "${pkg}/installer.yaml")"
-tag="$(yq -r '.images[] | select(.name == "ghcr.io/confighub/registrybot") | .newTag' "${pkg}/bases/default/kustomization.yaml")"
-[ "v${version}" = "$tag" ] || fail "installerMetadata.version is ${version}, but the package runs registrybot ${tag}"
+"${repo}/scripts/set-version.sh" --check "v${version}" >/dev/null || fail "the package and manifests/registrybot.yaml name different releases"
 
 # render <case> <installer setup args...> renders the package.
 render() {
