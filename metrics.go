@@ -34,28 +34,34 @@ import (
 // error; the next poll retries it. A reconcile that fails because registrybot
 // is shutting down is not counted.
 //
-// registrybot.discoveries counts the decisions discovery makes about a
-// repository a signed webhook named that the bot was not watching: admitted
-// when the policy let it in, so it is now watched and gets a fact unit, and
-// refused when it did not (discovery is off, or the owner or an exclude
-// pattern rules it out). Repositories recovered from their fact units at each
-// cycle were admitted before and are not counted again.
+// registrybot.webhook_deliveries counts deliveries to POST /webhooks/github,
+// one per request, by what the bot did with it: queued when it named a
+// watched repository, discovered when it named one the bot was not watching
+// and discovery admitted it, ignored when it was acknowledged with nothing to
+// reconcile (a ping, another event, a package that is not a container, or an
+// unwatched repository discovery did not admit), and rejected when it was
+// answered with an error (unreadable, too large, a bad signature, or a payload
+// without a package). It counts deliveries, not repositories: one image push
+// is many deliveries for the same repository. Nothing is counted while the
+// receiver is disabled (no GITHUB_WEBHOOK_SECRET).
 const meterName = "github.com/confighub/registrybot"
 
 // Values of the result attribute.
 const (
-	resultWritten   = "written"
-	resultUnchanged = "unchanged"
-	resultFailure   = "failure"
-	resultAdmitted  = "admitted"
-	resultRefused   = "refused"
+	resultWritten    = "written"
+	resultUnchanged  = "unchanged"
+	resultFailure    = "failure"
+	resultQueued     = "queued"
+	resultDiscovered = "discovered"
+	resultIgnored    = "ignored"
+	resultRejected   = "rejected"
 )
 
 // instruments holds the counters. OpenTelemetry instruments are safe to use
 // from the worker and the webhook handler at once.
 type instruments struct {
-	reconciles  metric.Int64Counter
-	discoveries metric.Int64Counter
+	reconciles metric.Int64Counter
+	deliveries metric.Int64Counter
 }
 
 // meters holds the package's counters. Until main installs real ones with
@@ -77,13 +83,13 @@ func newInstruments(mp metric.MeterProvider) (*instruments, error) {
 	if err != nil {
 		return nil, err
 	}
-	discoveries, err := m.Int64Counter("registrybot.discoveries",
-		metric.WithDescription("Unwatched repositories named by a webhook that discovery admitted or refused."),
-		metric.WithUnit("{repository}"))
+	deliveries, err := m.Int64Counter("registrybot.webhook_deliveries",
+		metric.WithDescription("GitHub webhook deliveries, by what registrybot did with them."),
+		metric.WithUnit("{delivery}"))
 	if err != nil {
 		return nil, err
 	}
-	return &instruments{reconciles: reconciles, discoveries: discoveries}, nil
+	return &instruments{reconciles: reconciles, deliveries: deliveries}, nil
 }
 
 func mustNewInstruments(mp metric.MeterProvider) *instruments {
@@ -107,8 +113,8 @@ func setMetrics(mp metric.MeterProvider) error {
 	for _, r := range []string{resultWritten, resultUnchanged, resultFailure} {
 		i.reconciles.Add(ctx, 0, result(r))
 	}
-	for _, r := range []string{resultAdmitted, resultRefused} {
-		i.discoveries.Add(ctx, 0, result(r))
+	for _, r := range []string{resultQueued, resultDiscovered, resultIgnored, resultRejected} {
+		i.deliveries.Add(ctx, 0, result(r))
 	}
 	meters.Store(i)
 	return nil
@@ -133,13 +139,10 @@ func countReconcile(ctx context.Context, written bool, err error) {
 	}
 }
 
-// countDiscovery records discovery admitting or refusing a repository.
-func countDiscovery(admitted bool) {
-	r := resultRefused
-	if admitted {
-		r = resultAdmitted
-	}
-	meters.Load().discoveries.Add(context.Background(), 1, result(r))
+// countDelivery records what was done with one webhook delivery: one of
+// resultQueued, resultDiscovered, resultIgnored or resultRejected.
+func countDelivery(r string) {
+	meters.Load().deliveries.Add(context.Background(), 1, result(r))
 }
 
 // newPrometheusMetrics builds a MeterProvider whose metrics are exported to a

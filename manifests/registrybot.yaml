@@ -143,10 +143,10 @@ spec:
 
             # ── Metrics ──────────────────────────────────────────────────────
             # Address registrybot serves Prometheus metrics on, at /metrics:
-            # reconcile and discovery counts by result. Defaults to ":9090". If
-            # you change the port, change containerPort above to match. No
-            # Service or scrape annotations are included; add your own.
-            # "false" turns metrics off: registrybot opens no port.
+            # reconcile and webhook delivery counts by result. Defaults to
+            # ":9090". If you change the port, change containerPort above to
+            # match. No Service or scrape annotations are included; add your
+            # own. "false" turns metrics off: registrybot opens no port.
             - name: METRICS_ENABLED
               value: "true"
             # - name: METRICS_ADDR

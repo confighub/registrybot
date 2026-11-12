@@ -298,12 +298,10 @@ func (r *reconciler) rebuildLocked() {
 }
 
 // discover admits a repository named by a webhook, when the policy allows it,
-// and returns its watch. An explicit repository is returned as is. Admitting
-// or refusing a repository not yet watched is counted.
+// and returns its watch. An explicit repository is returned as is.
 func (r *reconciler) discover(key string) (watch, bool) {
 	ref, err := parseRepository(key)
 	if err != nil {
-		countDiscovery(false)
 		return watch{}, false
 	}
 	r.mu.Lock()
@@ -312,10 +310,8 @@ func (r *reconciler) discover(key string) (watch, bool) {
 		return w, true
 	}
 	if !r.discovery.allows(ref) {
-		countDiscovery(false)
 		return watch{}, false
 	}
-	countDiscovery(true)
 	w := r.discovery.watchFor(ref, "")
 	r.discovered[w.Key] = w
 	r.pendingDisc[w.Key] = w

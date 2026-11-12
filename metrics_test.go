@@ -93,20 +93,36 @@ func TestReconcileMetrics(t *testing.T) {
 	})
 }
 
-func TestDiscoveryMetrics(t *testing.T) {
+// TestWebhookDeliveryMetrics delivers through the handler, so it fails if a
+// path stops counting or counts as the wrong result. It counts deliveries:
+// the same unwatched repository delivered three times is three.
+func TestWebhookDeliveryMetrics(t *testing.T) {
 	reader := useTestMetrics(t)
 	r := newDiscoveryReconciler(t)
+	h := githubWebhookHandler("s3cret", r)
+	withRepo := func(repo string) []byte {
+		return []byte(strings.ReplaceAll(packageEvent, "confighub/argobot", repo))
+	}
 
-	r.discover("ghcr.io/acme/api")                  // admitted
-	r.discover("ghcr.io/acme/api")                  // already watched: not counted
-	r.discover("ghcr.io/confighub/argobot")         // explicit: not counted
-	r.discover("ghcr.io/stranger/thing")            // owner not allowed
-	r.discover("ghcr.io/confighub/ui-preview-pr-9") // excluded
-	r.discover("not a repo")                        // unparseable
+	deliver(t, h, "s3cret", "package", []byte(packageEvent), true) // explicit: queued
+	deliver(t, h, "s3cret", "package", withRepo("acme/api"), true) // discovered
+	deliver(t, h, "s3cret", "package", withRepo("acme/api"), true) // now watched: queued
+	for i := 0; i < 3; i++ {
+		deliver(t, h, "s3cret", "package", withRepo("stranger/thing"), true) // not admitted: ignored
+	}
+	deliver(t, h, "s3cret", "ping", []byte(`{}`), true)                        // ignored
+	deliver(t, h, "s3cret", "issues", []byte(`{}`), true)                      // ignored
+	deliver(t, h, "s3cret", "package", []byte(packageEvent), false)            // bad signature: rejected
+	deliver(t, h, "s3cret", "package", []byte(`{"action":"published"}`), true) // no package: rejected
+
+	// With the receiver disabled nothing is counted.
+	deliver(t, githubWebhookHandler("", r), "", "package", []byte(packageEvent), false)
 
 	assertCounts(t, collectCounts(t, reader), map[string]int64{
-		"registrybot.discoveries/admitted": 1,
-		"registrybot.discoveries/refused":  3,
+		"registrybot.webhook_deliveries/queued":     2,
+		"registrybot.webhook_deliveries/discovered": 1,
+		"registrybot.webhook_deliveries/ignored":    5,
+		"registrybot.webhook_deliveries/rejected":   2,
 	})
 }
 
@@ -130,8 +146,10 @@ func TestPrometheusExposition(t *testing.T) {
 		`registrybot_reconciles_total{result="written"} 0` + "\n",
 		`registrybot_reconciles_total{result="unchanged"} 0` + "\n",
 		`registrybot_reconciles_total{result="failure"} 0` + "\n",
-		`registrybot_discoveries_total{result="admitted"} 0` + "\n",
-		`registrybot_discoveries_total{result="refused"} 0` + "\n",
+		`registrybot_webhook_deliveries_total{result="queued"} 0` + "\n",
+		`registrybot_webhook_deliveries_total{result="discovered"} 0` + "\n",
+		`registrybot_webhook_deliveries_total{result="ignored"} 0` + "\n",
+		`registrybot_webhook_deliveries_total{result="rejected"} 0` + "\n",
 	} {
 		if !strings.Contains(fresh, want) {
 			t.Errorf("metrics before any count missing %q:\n%s", want, fresh)
@@ -146,8 +164,9 @@ func TestPrometheusExposition(t *testing.T) {
 	countReconcile(ctx, false, nil)
 	countReconcile(ctx, false, errors.New("boom"))
 	countReconcile(ctx, false, errors.New("boom"))
-	countDiscovery(true)
-	countDiscovery(false)
+	countDelivery(resultDiscovered)
+	countDelivery(resultIgnored)
+	countDelivery(resultIgnored)
 
 	text := scrape(t, handler)
 	for _, want := range []string{
@@ -155,9 +174,9 @@ func TestPrometheusExposition(t *testing.T) {
 		`registrybot_reconciles_total{result="written"} 1` + "\n",
 		`registrybot_reconciles_total{result="unchanged"} 1` + "\n",
 		`registrybot_reconciles_total{result="failure"} 2` + "\n",
-		"# TYPE registrybot_discoveries_total counter\n",
-		`registrybot_discoveries_total{result="admitted"} 1` + "\n",
-		`registrybot_discoveries_total{result="refused"} 1` + "\n",
+		"# TYPE registrybot_webhook_deliveries_total counter\n",
+		`registrybot_webhook_deliveries_total{result="discovered"} 1` + "\n",
+		`registrybot_webhook_deliveries_total{result="ignored"} 2` + "\n",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("metrics missing %q:\n%s", want, text)

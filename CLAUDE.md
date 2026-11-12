@@ -20,6 +20,10 @@ subpackages; one concern per file, named for it.
   `METRICS_ADDR` through the OTel Prometheus exporter on a private registry,
   every series created at zero, no `target_info`. The README's metric names and
   labels are what dashboards depend on; `TestPrometheusExposition` pins them.
+  OpenTelemetry rather than the bare Prometheus client is for parity with
+  argobot, so the bots share one instrumentation API. Unlike argobot,
+  `METRICS_ENABLED` refuses values other than `true`/`false` instead of reading
+  them as on.
 - `manifests/registrybot.yaml` must list every env var, defaults filled in,
   opt-ins commented out. Adding a variable means updating it, the README table, and the
   installer package's Deployment, `package/bases/default/deployment.yaml`
