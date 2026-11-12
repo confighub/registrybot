@@ -15,6 +15,11 @@ subpackages; one concern per file, named for it.
 - Process configuration is environment only (`config.go`); everything about
   *what* to watch is the configuration document (`botconfig.go`), so it can be
   changed through ConfigHub. Do not add watch-list knobs as env vars.
+- Metrics (`metrics.go`) follow argobot's: OpenTelemetry counters in the
+  package-level `meters` (no-op until `setupMetrics`), served at `/metrics` on
+  `METRICS_ADDR` through the OTel Prometheus exporter on a private registry,
+  every series created at zero, no `target_info`. The README's metric names and
+  labels are what dashboards depend on; `TestPrometheusExposition` pins them.
 - `manifests/registrybot.yaml` must list every env var, defaults filled in,
   opt-ins commented out. Adding a variable means updating it, the README table, and the
   installer package's Deployment, `package/bases/default/deployment.yaml`

@@ -298,10 +298,12 @@ func (r *reconciler) rebuildLocked() {
 }
 
 // discover admits a repository named by a webhook, when the policy allows it,
-// and returns its watch. An explicit repository is returned as is.
+// and returns its watch. An explicit repository is returned as is. Admitting
+// or refusing a repository not yet watched is counted.
 func (r *reconciler) discover(key string) (watch, bool) {
 	ref, err := parseRepository(key)
 	if err != nil {
+		countDiscovery(false)
 		return watch{}, false
 	}
 	r.mu.Lock()
@@ -310,8 +312,10 @@ func (r *reconciler) discover(key string) (watch, bool) {
 		return w, true
 	}
 	if !r.discovery.allows(ref) {
+		countDiscovery(false)
 		return watch{}, false
 	}
+	countDiscovery(true)
 	w := r.discovery.watchFor(ref, "")
 	r.discovered[w.Key] = w
 	r.pendingDisc[w.Key] = w
@@ -466,7 +470,8 @@ func (r *reconciler) reconcile(ctx context.Context, w watch) error {
 	st.LastAttempt = time.Now()
 	r.mu.Unlock()
 
-	err := r.reconcileOnce(ctx, w, st)
+	written, err := r.reconcileOnce(ctx, w, st)
+	countReconcile(ctx, written, err)
 	r.mu.Lock()
 	if err != nil {
 		st.LastError = err.Error()
@@ -478,36 +483,37 @@ func (r *reconciler) reconcile(ctx context.Context, w watch) error {
 	return err
 }
 
-func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus) error {
+// reconcileOnce reports whether it wrote a new revision of the fact unit.
+func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus) (bool, error) {
 	versions, pkgURL, err := r.gh.listContainerVersions(ctx, w.Repo)
 	if err != nil {
-		return err
+		return false, err
 	}
 	doc := buildFactDoc(w, versions, pkgURL)
 	rendered, err := renderFactDoc(doc)
 	if err != nil {
-		return fmt.Errorf("rendering facts: %w", err)
+		return false, fmt.Errorf("rendering facts: %w", err)
 	}
 
 	spaceID, err := r.hub.spaceID(ctx, w.Space)
 	if err != nil {
-		return err
+		return false, err
 	}
 	unit, err := r.hub.findUnit(ctx, spaceID, w.Unit)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var existing []byte
 	if unit == nil {
 		unit, err = r.hub.createUnit(ctx, spaceID, factUnit(w))
 		if err != nil {
-			return err
+			return false, err
 		}
 		log.Printf("[INFO] %s: created fact unit %s in space %s", w.Key, w.Unit, w.Space)
 	} else if unit.DataSize > 0 {
 		existing, err = r.hub.downloadUnitData(ctx, spaceID, unit.UnitID)
 		if err != nil {
-			return err
+			return false, err
 		}
 	}
 
@@ -523,17 +529,17 @@ func (r *reconciler) reconcileOnce(ctx context.Context, w watch, st *repoStatus)
 	// The rendering is deterministic, so an unchanged repository renders the
 	// same bytes and must not produce a revision.
 	if existing != nil && bytes.Equal(existing, rendered) {
-		return nil
+		return false, nil
 	}
 	desc := describeChange(doc)
 	if err := r.hub.uploadUnitData(ctx, spaceID, unit.UnitID, rendered, desc); err != nil {
-		return err
+		return false, err
 	}
 	r.mu.Lock()
 	st.LastWrite = time.Now()
 	r.mu.Unlock()
 	log.Printf("[INFO] %s", desc)
-	return nil
+	return true, nil
 }
 
 // factUnit is the shape of a fact unit the bot creates. The labels let a

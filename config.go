@@ -44,11 +44,21 @@ type config struct {
 	// PollInterval is the default poll cadence. The configuration document may
 	// override it.
 	PollInterval time.Duration
+
+	// MetricsEnabled turns the Prometheus metrics server on (the default). Set
+	// METRICS_ENABLED=false and the bot opens no metrics port and its counters
+	// stay no-ops.
+	MetricsEnabled bool
+	// MetricsAddr is the address the bot serves its Prometheus metrics on, at
+	// /metrics. It is separate from ListenAddr so that exposing the webhook
+	// receiver does not expose the metrics.
+	MetricsAddr string
 }
 
 const (
 	defaultConfigUnit   = "registrybot"
 	defaultListenAddr   = ":8080"
+	defaultMetricsAddr  = ":9090"
 	defaultPollInterval = 5 * time.Minute
 	defaultGitHubAPIURL = "https://api.github.com"
 )
@@ -66,6 +76,7 @@ func loadConfig() (config, error) {
 		WebhookSecret: os.Getenv("GITHUB_WEBHOOK_SECRET"),
 		ListenAddr:    os.Getenv("REGISTRYBOT_LISTEN_ADDR"),
 		PollInterval:  defaultPollInterval,
+		MetricsAddr:   os.Getenv("METRICS_ADDR"),
 	}
 	cfg.ConfigHubUserAgent = "registrybot/" + version
 
@@ -84,6 +95,16 @@ func loadConfig() (config, error) {
 			return config{}, fmt.Errorf("invalid REGISTRYBOT_POLL_INTERVAL %q: want a positive duration such as 5m", v)
 		}
 		cfg.PollInterval = d
+	}
+	if cfg.MetricsAddr == "" {
+		cfg.MetricsAddr = defaultMetricsAddr
+	}
+	switch v := os.Getenv("METRICS_ENABLED"); v {
+	case "", "true":
+		cfg.MetricsEnabled = true
+	case "false":
+	default:
+		return config{}, fmt.Errorf("invalid METRICS_ENABLED %q: want true or false", v)
 	}
 
 	var missing []string
