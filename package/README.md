@@ -50,6 +50,7 @@ Add `--select webhooks` to receive webhooks.
 |---|---|---|
 | `config_space` | `registrybot` | The Space of registrybot's configuration Unit, `REGISTRYBOT_CONFIG_SPACE`. |
 | `confighub_url` | `https://hub.confighub.com` | The ConfigHub URL as the cluster reaches it. |
+| `metrics` | `true` | Whether registrybot serves Prometheus metrics. `false` sets `METRICS_ENABLED=false` and drops the Deployment's `metrics` port. |
 
 To run another image, such as a mirror's copy, pass `--set-image ghcr.io/confighub/registrybot=<registry>/registrybot:<tag>`.
 

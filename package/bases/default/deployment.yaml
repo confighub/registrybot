@@ -43,6 +43,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # Prometheus metrics at /metrics (METRICS_ADDR, by default :9090).
+            # Setting METRICS_ADDR to another port needs containerPort changed too.
+            - name: metrics
+              containerPort: 9090
           env:
             # ── ConfigHub connection (required) ──────────────────────────────
             - name: CONFIGHUB_URL
@@ -101,6 +105,14 @@ spec:
               value: "5m"
             - name: REGISTRYBOT_LISTEN_ADDR
               value: ":8080"
+
+            # ── Metrics ──────────────────────────────────────────────────────
+            # Whether registrybot serves Prometheus metrics. The metrics input
+            # sets it.
+            - name: METRICS_ENABLED
+              value: "true"
+            # - name: METRICS_ADDR
+            #   value: ":9090"
           livenessProbe:
             httpGet:
               path: /healthz
