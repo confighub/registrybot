@@ -79,6 +79,17 @@ discovery:
 
 The fact units are the record. At every cycle the bot lists the units in the default space that carry its `registrybot.confighub.com/repository` label and watches those, so a restart forgets nothing and the bot never edits its own configuration. To stop watching a discovered repository, delete its fact unit or tighten the policy; an entry in `repositories` always takes precedence over a discovered one for the same repository.
 
+### Metrics
+
+registrybot records its counters with OpenTelemetry and serves them in the Prometheus text format at `/metrics` on `METRICS_ADDR` (`:9090` by default, apart from the webhook receiver's port), through the OpenTelemetry Prometheus exporter (the OpenTelemetry instrument name is in parentheses):
+
+- `registrybot_reconciles_total` (`registrybot.reconciles`) — reconciles of one repository, from a poll or a settled webhook, by `result`: `written` when the fact unit got a new revision (including when it was created), `unchanged` when its facts were already current and nothing was written, and `failure` when the reconcile failed and is left to the next poll. `/status` names the repository and its last error.
+- `registrybot_webhook_deliveries_total` (`registrybot.webhook_deliveries`) — deliveries to `POST /webhooks/github`, by `result`: `queued` when the delivery named a watched repository; `discovered` when it named one registrybot was not watching and the [discovery](#discovery) policy admitted it, so it now gets a fact unit; `ignored` when it was acknowledged with nothing to reconcile (a ping, another event, a package that is not a container, or an unwatched repository discovery did not admit, which is every unwatched one while discovery is off); and `rejected` when it was answered with an error (unreadable, too large, a bad signature, or no package in the payload). It counts deliveries, not repositories: one image push is many deliveries for the same repository. Nothing is counted while the receiver is disabled.
+
+A reconcile that fails because registrybot is shutting down is not counted as a failure. Every series is exported from the start, at zero, and the counters restart from zero with each process. `/metrics` holds only these counters: no Go runtime or process metrics, and no OpenTelemetry `target_info`, so the `OTEL_*` resource environment variables have no effect. Serving them is best-effort: if the address cannot be opened, registrybot warns and goes on without metrics.
+
+The manifests name the container port `metrics` and set it to 9090. If you change the port in `METRICS_ADDR`, change `containerPort` to match. Set `METRICS_ENABLED=false` to turn metrics off. They include no Service port, ServiceMonitor or scrape annotations; add whichever your Prometheus uses to discover targets.
+
 ## Configuration
 
 Process configuration is environment only. Everything about *what* to watch lives in the configuration document above.
@@ -96,10 +107,12 @@ Process configuration is environment only. Everything about *what* to watch live
 | `GITHUB_WEBHOOK_SECRET` | no | The secret GitHub signs deliveries with. Absent: webhook endpoint disabled, polling only |
 | `REGISTRYBOT_POLL_INTERVAL` | no | Default `5m`. The configuration document's `pollInterval` overrides it |
 | `REGISTRYBOT_LISTEN_ADDR` | no | Default `:8080` |
+| `METRICS_ENABLED` | no | `true` (the default) or `false`; `false` turns metrics off and registrybot opens no port. Any other value stops registrybot at startup. See [Metrics](#metrics) |
+| `METRICS_ADDR` | no | Address to serve Prometheus metrics on, at `/metrics`. Default `:9090`; changing the port means changing the manifests' `containerPort` too. See [Metrics](#metrics) |
 
 Exactly one ConfigHub credential kind must be set; the bot refuses to guess between two.
 
-HTTP endpoints: `POST /webhooks/github` (signature-checked), `GET /healthz`, `GET /status` (what is watched and whether it was discovered, last attempt/success/write per repository, current stream tags).
+HTTP endpoints: `POST /webhooks/github` (signature-checked), `GET /healthz`, `GET /status` (what is watched and whether it was discovered, last attempt/success/write per repository, current stream tags). Prometheus metrics are served apart, on `METRICS_ADDR`; see [Metrics](#metrics).
 
 ## Setup
 

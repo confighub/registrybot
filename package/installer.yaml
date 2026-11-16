@@ -47,6 +47,13 @@ spec:
       prompt: ConfigHub URL as the cluster reaches it
       description: |
         The ConfigHub server registrybot connects to.
+    - name: metrics
+      type: bool
+      default: true
+      prompt: Serve Prometheus metrics?
+      description: |
+        Whether registrybot serves Prometheus metrics at /metrics. Sets
+        METRICS_ENABLED; false opens no metrics port.
 
   transformers:
     - toolchain: Kubernetes/YAML
@@ -62,6 +69,19 @@ spec:
             - registrybot
             - "CONFIGHUB_URL={{ or .Inputs.confighub_url \"confighubplaceholder\" }}"
             - "REGISTRYBOT_CONFIG_SPACE={{ or .Inputs.config_space \"confighubplaceholder\" }}"
+            - "METRICS_ENABLED={{ .Inputs.metrics }}"
+    - toolchain: Kubernetes/YAML
+      whereResource: "ConfigHub.ResourceType = 'apps/v1/Deployment'"
+      description: With metrics off, expose no metrics port.
+      invocations:
+        - name: set-yq
+          args:
+            - >-
+              with(select($params.metrics == "false");
+              .spec.template.spec.containers[] |= (select(.name == "registrybot") |= (
+              .ports |= map(select(.name != "metrics")) |
+              select((.ports | length) == 0) |= del(.ports))))
+            - "metrics={{ .Inputs.metrics }}"
 
   validators:
     - toolchain: Kubernetes/YAML

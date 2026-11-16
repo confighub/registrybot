@@ -72,6 +72,11 @@ func githubWebhookHandler(secret string, r *reconciler) http.HandlerFunc {
 			http.NotFound(w, req)
 			return
 		}
+		// Every answer below decides what the delivery counts as. Rejected
+		// until it is shown to be otherwise.
+		outcome := resultRejected
+		defer func() { countDelivery(outcome) }()
+
 		body, err := io.ReadAll(io.LimitReader(req.Body, maxWebhookBody+1))
 		if err != nil || len(body) > maxWebhookBody {
 			http.Error(w, "body too large or unreadable", http.StatusRequestEntityTooLarge)
@@ -86,10 +91,12 @@ func githubWebhookHandler(secret string, r *reconciler) http.HandlerFunc {
 		event := req.Header.Get("X-GitHub-Event")
 		switch event {
 		case "ping":
+			outcome = resultIgnored
 			writeJSON(w, http.StatusOK, map[string]string{"status": "pong"})
 			return
 		case "package", "registry_package":
 		default:
+			outcome = resultIgnored
 			writeJSON(w, http.StatusAccepted, map[string]string{"ignored": "event " + event})
 			return
 		}
@@ -109,6 +116,7 @@ func githubWebhookHandler(secret string, r *reconciler) http.HandlerFunc {
 		}
 		key, ok := repositoryFromPayload(details)
 		if !ok {
+			outcome = resultIgnored
 			writeJSON(w, http.StatusAccepted, map[string]string{"ignored": "not a container package"})
 			return
 		}
@@ -117,15 +125,18 @@ func githubWebhookHandler(secret string, r *reconciler) http.HandlerFunc {
 			// so the repository is one the webhook owner publishes. Whatever the
 			// payload claims about it is still ignored: the reconcile reads GitHub.
 			if _, ok := r.discover(key); !ok {
+				outcome = resultIgnored
 				log.Printf("[INFO] webhook: %s %s for %s, which is not watched; ignored", event, payload.Action, key)
 				writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": false})
 				return
 			}
+			outcome = resultDiscovered
 			log.Printf("[INFO] webhook: %s %s for %s; discovered, settling", event, payload.Action, key)
 			r.enqueueSettled(key)
 			writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": true, "discovered": true})
 			return
 		}
+		outcome = resultQueued
 		log.Printf("[INFO] webhook: %s %s for %s; settling", event, payload.Action, key)
 		r.enqueueSettled(key)
 		writeJSON(w, http.StatusAccepted, map[string]any{"repository": key, "queued": true})

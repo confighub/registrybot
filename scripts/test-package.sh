@@ -117,6 +117,17 @@ done
   fail "default: reads registrybot-secrets keys $(secret_keys_of default)"
 [ "$(secret_keys_of webhooks)" = CONFIGHUB_AUTH_PRIVATE_KEY,GITHUB_TOKEN,GITHUB_WEBHOOK_SECRET ] ||
   fail "webhooks: reads registrybot-secrets keys $(secret_keys_of webhooks)"
+# Metrics are on unless the metrics input turns them off.
+[ "$(env_of base METRICS_ENABLED)" = true ] || fail "base: METRICS_ENABLED is $(env_of base METRICS_ENABLED), want true"
+# ports_of <case>: the names of the registrybot container's ports.
+ports_of() {
+  yq -r '[.spec.template.spec.containers[0].ports[].name] | join(",")' \
+    "${work}/$1/out/manifests/deployment-registrybot-registrybot.yaml"
+}
+[ "$(ports_of base)" = http,metrics ] || fail "base: ports are $(ports_of base), want http,metrics"
+expect_render no-metrics "" --input metrics=false
+[ "$(env_of no-metrics METRICS_ENABLED)" = false ] || fail "no-metrics: METRICS_ENABLED is $(env_of no-metrics METRICS_ENABLED), want false"
+[ "$(ports_of no-metrics)" = http ] || fail "no-metrics: ports are $(ports_of no-metrics), want http"
 expect_refusal latest-image vet-images \
   --set-image ghcr.io/confighub/registrybot=ghcr.io/confighub/registrybot:latest
 

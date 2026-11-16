@@ -50,6 +50,15 @@ func main() {
 		log.Fatalf("[FATAL] %v", err)
 	}
 
+	// Set up the counters before anything that counts starts. Disabled, they
+	// stay no-ops and no port is opened.
+	var metricsHandler http.Handler
+	if cfg.MetricsEnabled {
+		metricsHandler = setupMetrics()
+	} else {
+		log.Printf("[INFO] metrics disabled (METRICS_ENABLED=false)")
+	}
+
 	gh := newGitHubClient(cfg)
 	rec := newReconciler(cfg, hub, gh)
 	srv := newHTTPServer(cfg, rec)
@@ -72,6 +81,9 @@ func main() {
 		}
 	}()
 	go func() { errc <- rec.Run(ctx) }()
+	// Best-effort: a port that cannot be opened warns rather than stopping the
+	// bot, so it does not report to errc.
+	go serveMetrics(ctx, cfg.MetricsAddr, metricsHandler)
 
 	select {
 	case <-ctx.Done():
