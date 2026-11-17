@@ -8,7 +8,7 @@ installerMetadata:
   # The registrybot release the package runs, without the "v". Set it, and the
   # image tag in bases/default/kustomization.yaml, with
   # scripts/set-version.sh before tagging the release.
-  version: 0.5.1
+  version: 0.5.3
   # vet-pod-security-standard.
   installerVersion: ">= 0.3.0"
 spec:
@@ -77,10 +77,7 @@ spec:
         - name: set-yq
           args:
             - >-
-              with(select($params.metrics == "false");
-              .spec.template.spec.containers[] |= (select(.name == "registrybot") |= (
-              .ports |= map(select(.name != "metrics")) |
-              select((.ports | length) == 0) |= del(.ports))))
+              with(select($params.metrics == "false"); .spec.template.spec.containers[] |= (select(.name == "registrybot") |= ( .ports |= map(select(.name != "metrics")) | select((.ports | length) == 0) |= del(.ports))))
             - "metrics={{ .Inputs.metrics }}"
 
   validators:
