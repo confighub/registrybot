@@ -11,4 +11,4 @@ resources:
 images:
   - name: ghcr.io/confighub/registrybot
     newName: ghcr.io/confighub/registrybot
-    newTag: v0.5.1
+    newTag: v0.5.3
