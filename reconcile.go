@@ -560,7 +560,7 @@ func factUnit(w watch) goclientnew.Unit {
 
 // displayName is the human-facing name of a fact unit. ConfigHub's DisplayName
 // rejects "/" and ":", so the repository is spelled with spaces
-// ("confighub argobot"); the exact repository is on the unit's labels.
+// ("confighub k8sbot"); the exact repository is on the unit's labels.
 func displayName(ref repoRef) string {
 	return strings.ReplaceAll(ref.Owner+" "+ref.Name, "/", " ")
 }

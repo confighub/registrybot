@@ -2,7 +2,7 @@
 
 ## Why this exists
 
-An internal ConfigHub product issue (confighub#5062, private) asks for an image updater: watch a container registry and propagate new images to every unit that deploys them. The discussion there settled the shape early — build it outside ConfigHub, like argobot and the Argo CD / Flux image updaters, and have it report back into a config unit rather than reach into deployment units directly. registrybot is that external piece, built so that we have something concrete to play with while the product-side questions (fact units versus intent units, link kinds across variants, promotion of facts) are worked out.
+An internal ConfigHub product issue (confighub#5062, private) asks for an image updater: watch a container registry and propagate new images to every unit that deploys them. The discussion there settled the shape early — build it outside ConfigHub, like k8sbot and the Argo CD / Flux image updaters, and have it report back into a config unit rather than reach into deployment units directly. registrybot is that external piece, built so that we have something concrete to play with while the product-side questions (fact units versus intent units, link kinds across variants, promotion of facts) are worked out.
 
 ## The one job
 
@@ -51,7 +51,7 @@ A static token is accepted for local development and is never refreshed.
 | Path | Meaning |
 |---|---|
 | `configHub.configSchema` | This identifier |
-| `configHub.configName` | The repository's name within its owner (`argobot` in `ghcr.io/confighub/argobot`) |
+| `configHub.configName` | The repository's name within its owner (`k8sbot` in `ghcr.io/confighub/k8sbot`) |
 | `repository`, `registry`, `owner` | The canonical repository and its registry and owner parts |
 | `source` | How it was observed; `github-packages` |
 | `url` | The package's web page |

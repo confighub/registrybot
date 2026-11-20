@@ -101,7 +101,7 @@ func TestWebhookDeliveryMetrics(t *testing.T) {
 	r := newDiscoveryReconciler(t)
 	h := githubWebhookHandler("s3cret", r)
 	withRepo := func(repo string) []byte {
-		return []byte(strings.ReplaceAll(packageEvent, "confighub/argobot", repo))
+		return []byte(strings.ReplaceAll(packageEvent, "confighub/k8sbot", repo))
 	}
 
 	deliver(t, h, "s3cret", "package", []byte(packageEvent), true) // explicit: queued

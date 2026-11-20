@@ -102,7 +102,7 @@ func newFakeGitHub(t *testing.T) (*fakeGitHub, *httptest.Server) {
 			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
 		case req.URL.Path == "/users/confighub":
 			writeJSON(w, http.StatusOK, map[string]string{"type": "Organization"})
-		case req.URL.Path == "/orgs/confighub/packages/container/argobot/versions":
+		case req.URL.Path == "/orgs/confighub/packages/container/k8sbot/versions":
 			writeJSON(w, http.StatusOK, []map[string]any{{
 				"id":         1,
 				"name":       "sha256:" + strings.Repeat("a", 64),
@@ -138,7 +138,7 @@ func TestReconcileCountsWhatItDid(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newReconciler(cfg, hc, newGitHubClient(cfg))
-	w, ok := lookupOnly(t, "ghcr.io/confighub/argobot")
+	w, ok := lookupOnly(t, "ghcr.io/confighub/k8sbot")
 	if !ok {
 		t.Fatal("no watch")
 	}
