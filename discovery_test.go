@@ -20,8 +20,8 @@ discovery:
   owners: [ConfigHub, acme]
   exclude: ["^confighub/ui-preview", "-preview$"]
 repositories:
-  - repository: ghcr.io/confighub/argobot
-    unit: argobot-explicit
+  - repository: ghcr.io/confighub/k8sbot
+    unit: k8sbot-explicit
 `
 
 func TestParseDiscovery(t *testing.T) {
@@ -33,7 +33,7 @@ func TestParseDiscovery(t *testing.T) {
 	if !d.Enabled {
 		t.Fatal("discovery should be enabled")
 	}
-	allowed := []string{"ghcr.io/confighub/cubbychat", "ghcr.io/acme/api", "ghcr.io/confighub/configs/argobot"}
+	allowed := []string{"ghcr.io/confighub/cubbychat", "ghcr.io/acme/api", "ghcr.io/confighub/configs/k8sbot"}
 	denied := []string{"ghcr.io/someone/else", "ghcr.io/confighub/ui-preview-pr-1", "ghcr.io/acme/api-preview"}
 	for _, s := range allowed {
 		ref, _ := parseRepository(s)
@@ -105,7 +105,7 @@ func TestDiscoverAddsAllowedRepositoryOnce(t *testing.T) {
 		t.Error("discovered repository should be pending until recovered from its unit")
 	}
 	// Explicit entry wins and is returned unchanged.
-	if w, ok := r.discover("ghcr.io/confighub/argobot"); !ok || w.Discovered || w.Unit != "argobot-explicit" {
+	if w, ok := r.discover("ghcr.io/confighub/k8sbot"); !ok || w.Discovered || w.Unit != "k8sbot-explicit" {
 		t.Errorf("explicit: %+v %v", w, ok)
 	}
 	// Policy holds.
@@ -135,7 +135,7 @@ func TestRebuildDropsDiscoveredWhenPolicyTightens(t *testing.T) {
 	if _, ok := r.lookup("ghcr.io/acme/api"); ok {
 		t.Error("a discovered repository outside the new policy should be dropped")
 	}
-	if _, ok := r.lookup("ghcr.io/confighub/argobot"); !ok {
+	if _, ok := r.lookup("ghcr.io/confighub/k8sbot"); !ok {
 		t.Error("explicit repositories are unaffected")
 	}
 }
@@ -144,7 +144,7 @@ func TestWebhookDiscoversUnlistedRepository(t *testing.T) {
 	r := newDiscoveryReconciler(t)
 	h := githubWebhookHandler("s3cret", r)
 
-	body := []byte(strings.ReplaceAll(packageEvent, "confighub/argobot", "acme/api"))
+	body := []byte(strings.ReplaceAll(packageEvent, "confighub/k8sbot", "acme/api"))
 	rec := deliver(t, h, "s3cret", "package", body, true)
 	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"discovered":true`) {
 		t.Fatalf("discovered delivery: %d %s", rec.Code, rec.Body)
@@ -153,7 +153,7 @@ func TestWebhookDiscoversUnlistedRepository(t *testing.T) {
 		t.Errorf("queued %q", key)
 	}
 
-	denied := []byte(strings.ReplaceAll(packageEvent, "confighub/argobot", "stranger/thing"))
+	denied := []byte(strings.ReplaceAll(packageEvent, "confighub/k8sbot", "stranger/thing"))
 	rec = deliver(t, h, "s3cret", "package", denied, true)
 	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"queued":false`) {
 		t.Errorf("denied delivery: %d %s", rec.Code, rec.Body)

@@ -38,7 +38,7 @@ func sampleVersions() []packageVersion {
 func TestBuildFactDocDefaultStreams(t *testing.T) {
 	w := testWatch(t, `
 repositories:
-  - repository: ghcr.io/confighub/argobot
+  - repository: ghcr.io/confighub/k8sbot
 `)
 	doc := buildFactDoc(w, sampleVersions(), "https://example")
 
@@ -65,7 +65,7 @@ func TestBuildFactDocCustomStreamsAndExclude(t *testing.T) {
 defaults:
   exclude: ["^sha-"]
 repositories:
-  - repository: ghcr.io/confighub/argobot
+  - repository: ghcr.io/confighub/k8sbot
     streams:
       stable: {semver: "<0.3.1"}
       rc:     {semver: ">=1.0.0-0", pattern: "-rc"}
@@ -92,7 +92,7 @@ repositories:
 }
 
 func TestRenderIsDeterministic(t *testing.T) {
-	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/argobot\n")
+	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/k8sbot\n")
 	a, err := renderFactDoc(buildFactDoc(w, sampleVersions(), "u"))
 	if err != nil {
 		t.Fatal(err)
@@ -104,10 +104,10 @@ func TestRenderIsDeterministic(t *testing.T) {
 	if string(a) != string(b) {
 		t.Errorf("an unchanged repository must render the same bytes:\n%s\n---\n%s", a, b)
 	}
-	if !strings.HasPrefix(string(a), "# Facts about ghcr.io/confighub/argobot") {
+	if !strings.HasPrefix(string(a), "# Facts about ghcr.io/confighub/k8sbot") {
 		t.Errorf("missing header: %s", a[:80])
 	}
-	if !strings.Contains(string(a), "configHub:\n    configSchema: registrybot.confighub.com/v1alpha4\n    configName: argobot\n") {
+	if !strings.Contains(string(a), "configHub:\n    configSchema: registrybot.confighub.com/v1alpha4\n    configName: k8sbot\n") {
 		t.Errorf("missing configHub metadata:\n%s", a)
 	}
 	if strings.Contains(string(a), "\nschema:") {
@@ -161,9 +161,9 @@ func TestExcluded(t *testing.T) {
 }
 
 func TestDescribeChange(t *testing.T) {
-	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/argobot\n")
+	w := testWatch(t, "repositories:\n  - repository: ghcr.io/confighub/k8sbot\n")
 	got := describeChange(buildFactDoc(w, sampleVersions(), ""))
-	want := "registrybot observed ghcr.io/confighub/argobot: stable=v0.3.1@a"
+	want := "registrybot observed ghcr.io/confighub/k8sbot: stable=v0.3.1@a"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)
 	}

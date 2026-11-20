@@ -11,10 +11,10 @@ import (
 
 func TestParseRepository(t *testing.T) {
 	cases := map[string]string{
-		"ghcr.io/confighub/argobot":                  "ghcr.io/confighub/argobot",
-		"ghcr.io/ConfigHub/ArgoBot:v1":               "ghcr.io/confighub/argobot",
-		"ghcr.io/confighub/configs/argobot@sha256:x": "ghcr.io/confighub/configs/argobot",
-		" ghcr.io/confighub/argobot/ ":               "ghcr.io/confighub/argobot",
+		"ghcr.io/confighub/k8sbot":                  "ghcr.io/confighub/k8sbot",
+		"ghcr.io/ConfigHub/K8sBot:v1":               "ghcr.io/confighub/k8sbot",
+		"ghcr.io/confighub/configs/k8sbot@sha256:x": "ghcr.io/confighub/configs/k8sbot",
+		" ghcr.io/confighub/k8sbot/ ":               "ghcr.io/confighub/k8sbot",
 	}
 	for in, want := range cases {
 		ref, err := parseRepository(in)
@@ -26,13 +26,13 @@ func TestParseRepository(t *testing.T) {
 			t.Errorf("%q: got %s, want %s", in, ref, want)
 		}
 	}
-	for _, bad := range []string{"argobot", "confighub/argobot", "docker.io/library/nginx", "ghcr.io//argobot"} {
+	for _, bad := range []string{"k8sbot", "confighub/k8sbot", "docker.io/library/nginx", "ghcr.io//k8sbot"} {
 		if _, err := parseRepository(bad); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}
 	}
-	ref, _ := parseRepository("ghcr.io/confighub/configs/argobot")
-	if ref.Owner != "confighub" || ref.Name != "configs/argobot" {
+	ref, _ := parseRepository("ghcr.io/confighub/configs/k8sbot")
+	if ref.Owner != "confighub" || ref.Name != "configs/k8sbot" {
 		t.Errorf("nested name: %+v", ref)
 	}
 }
@@ -46,10 +46,10 @@ defaults:
   streams:
     stable: {semver: ">=1.0.0"}
 repositories:
-  - repository: ghcr.io/confighub/argobot
-  - repository: ghcr.io/confighub/configs/argobot
+  - repository: ghcr.io/confighub/k8sbot
+  - repository: ghcr.io/confighub/configs/k8sbot
     space: other
-    unit: argobot-bundle
+    unit: k8sbot-bundle
     exclude: []
     streams:
       stable: {pattern: "^latest$"}
@@ -67,7 +67,7 @@ repositories:
 		t.Fatalf("watches: %d", len(watches))
 	}
 	a, b := watches[0], watches[1]
-	if a.Space != "shared-facts" || a.Unit != "confighub-argobot" || len(a.Exclude) != 1 {
+	if a.Space != "shared-facts" || a.Unit != "confighub-k8sbot" || len(a.Exclude) != 1 {
 		t.Errorf("a: %+v", a)
 	}
 	if names(a.Streams) != "stable" {
@@ -76,7 +76,7 @@ repositories:
 	if a.Streams[0].Constraint == nil || !a.Streams[0].Semver {
 		t.Errorf("a.stable should be a semver stream with a constraint")
 	}
-	if b.Space != "other" || b.Unit != "argobot-bundle" || len(b.Exclude) != 0 {
+	if b.Space != "other" || b.Unit != "k8sbot-bundle" || len(b.Exclude) != 0 {
 		t.Errorf("b: %+v", b)
 	}
 	if names(b.Streams) != "main stable" {
@@ -96,12 +96,12 @@ func names(streams []stream) string {
 }
 
 func TestParseBotConfigFallbackSpaceAndSlug(t *testing.T) {
-	p, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/configs/argobot\n"), "cfgspace")
+	p, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/configs/k8sbot\n"), "cfgspace")
 	watches := p.Watches
 	if err != nil {
 		t.Fatal(err)
 	}
-	if watches[0].Space != "cfgspace" || watches[0].Unit != "confighub-configs-argobot" {
+	if watches[0].Space != "cfgspace" || watches[0].Unit != "confighub-configs-k8sbot" {
 		t.Errorf("%+v", watches[0])
 	}
 }
@@ -126,13 +126,13 @@ func TestParseBotConfigErrors(t *testing.T) {
 }
 
 func TestSlugify(t *testing.T) {
-	if got := slugify("ConfigHub", "configs/argobot"); got != "confighub-configs-argobot" {
+	if got := slugify("ConfigHub", "configs/k8sbot"); got != "confighub-configs-k8sbot" {
 		t.Errorf("got %q", got)
 	}
 }
 
 func TestDisplayName(t *testing.T) {
-	if got := displayName(repoRef{Registry: "ghcr.io", Owner: "confighub", Name: "configs/argobot"}); got != "confighub configs argobot" {
+	if got := displayName(repoRef{Registry: "ghcr.io", Owner: "confighub", Name: "configs/k8sbot"}); got != "confighub configs k8sbot" {
 		t.Errorf("got %q", got)
 	}
 }

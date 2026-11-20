@@ -31,7 +31,7 @@ import (
 //	  fromWebhooks: true
 //	  owners: [confighub]
 //	repositories:
-//	  - repository: ghcr.io/confighub/argobot
+//	  - repository: ghcr.io/confighub/k8sbot
 //	    streams:
 //	      stable: {semver: ">=0.1.0 <1.0.0"}
 //	      main:   {pattern: "^main$"}
@@ -89,7 +89,7 @@ type discoveryConfig struct {
 
 // repoConfig is one watched container repository and the fact unit it feeds.
 type repoConfig struct {
-	// Repository is the image repository, e.g. ghcr.io/confighub/argobot.
+	// Repository is the image repository, e.g. ghcr.io/confighub/k8sbot.
 	Repository string `yaml:"repository"`
 	// Space is the slug of the space holding the fact unit. Defaults to
 	// defaults.space, then to the space the configuration unit itself is in.
@@ -124,7 +124,7 @@ const streamStable = "stable"
 
 // watch is a repoConfig after defaults are applied and patterns compiled.
 type watch struct {
-	Key        string // canonical repository, e.g. ghcr.io/confighub/argobot
+	Key        string // canonical repository, e.g. ghcr.io/confighub/k8sbot
 	Repo       repoRef
 	Space      string
 	Unit       string
@@ -144,7 +144,7 @@ type stream struct {
 type repoRef struct {
 	Registry string // ghcr.io
 	Owner    string // confighub
-	Name     string // argobot, or configs/argobot
+	Name     string // k8sbot, or configs/k8sbot
 }
 
 func (r repoRef) String() string { return r.Registry + "/" + r.Owner + "/" + r.Name }

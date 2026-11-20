@@ -55,8 +55,8 @@ discovery:
 
 repositories:
   # Minimal: the built-in stream, defaults for everything else. Fact unit slug
-  # is derived (confighub-argobot).
-  - repository: ghcr.io/confighub/argobot
+  # is derived (confighub-k8sbot).
+  - repository: ghcr.io/confighub/k8sbot
 
   # Everything spelled out.
   - repository: ghcr.io/confighub/cubbychat

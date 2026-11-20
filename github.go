@@ -147,7 +147,7 @@ func (g *githubClient) listContainerVersions(ctx context.Context, ref repoRef) (
 	if err != nil {
 		return nil, "", err
 	}
-	// PathEscape turns the "/" of a nested package name (configs/argobot) into
+	// PathEscape turns the "/" of a nested package name (configs/k8sbot) into
 	// %2F, which is how the API expects it.
 	path := fmt.Sprintf("/%s/%s/packages/container/%s/versions", kind, url.PathEscape(ref.Owner), url.PathEscape(ref.Name))
 

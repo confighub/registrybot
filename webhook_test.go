@@ -24,7 +24,7 @@ func sign(secret string, body []byte) string {
 func newTestReconciler(t *testing.T) *reconciler {
 	t.Helper()
 	r := newReconciler(config{PollInterval: defaultPollInterval, ConfigSpace: "facts"}, nil, nil)
-	p, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/argobot\n"), "facts")
+	p, err := parseBotConfig([]byte("repositories:\n  - repository: ghcr.io/confighub/k8sbot\n"), "facts")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,9 +48,9 @@ func deliver(t *testing.T, h http.Handler, secret, event string, body []byte, si
 	return rec
 }
 
-const packageEvent = `{"action":"published","package":{"name":"argobot","namespace":"confighub",
+const packageEvent = `{"action":"published","package":{"name":"k8sbot","namespace":"confighub",
 "package_type":"CONTAINER","ecosystem":"CONTAINER",
-"package_version":{"name":"sha256:abc","package_url":"ghcr.io/confighub/argobot:v0.4.0",
+"package_version":{"name":"sha256:abc","package_url":"ghcr.io/confighub/k8sbot:v0.4.0",
 "container_metadata":{"tag":{"name":"v0.4.0","digest":"sha256:abc"}}}}}`
 
 func TestWebhookQueuesWatchedRepository(t *testing.T) {
@@ -63,12 +63,12 @@ func TestWebhookQueuesWatchedRepository(t *testing.T) {
 	}
 	var resp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp["queued"] != true || resp["repository"] != "ghcr.io/confighub/argobot" {
+	if resp["queued"] != true || resp["repository"] != "ghcr.io/confighub/k8sbot" {
 		t.Errorf("resp: %v", resp)
 	}
 	select {
 	case key := <-r.queue:
-		if key != "ghcr.io/confighub/argobot" {
+		if key != "ghcr.io/confighub/k8sbot" {
 			t.Errorf("queued %q", key)
 		}
 	default:
@@ -80,7 +80,7 @@ func TestWebhookIgnoresUnwatchedAndNonContainer(t *testing.T) {
 	r := newTestReconciler(t)
 	h := githubWebhookHandler("s3cret", r)
 
-	other := strings.ReplaceAll(packageEvent, "confighub/argobot", "someone/else")
+	other := strings.ReplaceAll(packageEvent, "confighub/k8sbot", "someone/else")
 	rec := deliver(t, h, "s3cret", "registry_package", []byte(strings.ReplaceAll(other, `"package":`, `"registry_package":`)), true)
 	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), `"queued":false`) {
 		t.Errorf("unwatched: %d %s", rec.Code, rec.Body)
@@ -117,9 +117,9 @@ func TestWebhookRejectsBadSignatureAndDisabled(t *testing.T) {
 }
 
 func TestRepositoryFromPayloadFallsBackToNamespace(t *testing.T) {
-	d := &packageDetails{Name: "configs/argobot", Namespace: "ConfigHub", PackageType: "CONTAINER"}
+	d := &packageDetails{Name: "configs/k8sbot", Namespace: "ConfigHub", PackageType: "CONTAINER"}
 	key, ok := repositoryFromPayload(d)
-	if !ok || key != "ghcr.io/confighub/configs/argobot" {
+	if !ok || key != "ghcr.io/confighub/configs/k8sbot" {
 		t.Errorf("%q %v", key, ok)
 	}
 }
@@ -163,14 +163,14 @@ func TestWebhookBurstSettlesIntoOneReconcile(t *testing.T) {
 	if keys := drain(r); len(keys) != 0 {
 		t.Fatalf("queued during the settle window: %v", keys)
 	}
-	if !r.isSettling("ghcr.io/confighub/argobot") {
+	if !r.isSettling("ghcr.io/confighub/k8sbot") {
 		t.Fatal("settle window should be open")
 	}
 	keys := waitQueued(t, r, 500*time.Millisecond)
-	if len(keys) != 1 || keys[0] != "ghcr.io/confighub/argobot" {
+	if len(keys) != 1 || keys[0] != "ghcr.io/confighub/k8sbot" {
 		t.Fatalf("queued %v, want exactly one reconcile", keys)
 	}
-	if r.isSettling("ghcr.io/confighub/argobot") {
+	if r.isSettling("ghcr.io/confighub/k8sbot") {
 		t.Error("settle window should be closed")
 	}
 }
@@ -204,8 +204,8 @@ func TestWebhookWithoutSettleQueuesImmediately(t *testing.T) {
 func TestPollSkipsSettlingRepository(t *testing.T) {
 	r := newTestReconciler(t)
 	r.settle, r.maxDelay = 200*time.Millisecond, time.Second
-	r.enqueueSettled("ghcr.io/confighub/argobot")
-	for _, k := range []string{"ghcr.io/confighub/argobot"} {
+	r.enqueueSettled("ghcr.io/confighub/k8sbot")
+	for _, k := range []string{"ghcr.io/confighub/k8sbot"} {
 		if r.isSettling(k) {
 			continue
 		}
