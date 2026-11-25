@@ -3,11 +3,10 @@
 # SPDX-License-Identifier: MIT
 #
 # Sets the registrybot release the deployments name, before that release is
-# tagged: the image tag in manifests/registrybot.yaml, which the config bundle
-# publishes, and in the installer package in package/, whose version is the
-# release's without the "v", as package/README.md's commands pull it. Commit
-# the change and merge it, then push the tag. release.yml fails for a tag the
-# deployments don't name.
+# tagged: the image tag in manifests/registrybot.yaml and in the installer
+# package in package/, whose version is the release's without the "v", as
+# package/README.md's commands pull it. Commit the change and merge it, then
+# push the tag. release.yml fails for a tag the deployments don't name.
 #
 # With --check it changes nothing and fails when the deployments name another
 # release.
