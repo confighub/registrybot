@@ -3,33 +3,23 @@
 
 name: release
 
-# Three things are released here, on two different cadences:
+# A release is cut by pushing a git tag vX.Y.Z. Two things are published, both
+# versioned as the release and immutable:
 #
-#   * The container image is versioned with semver and is cut ONLY when you push
-#     a git tag vX.Y.Z. It is immutable per version.
+#   * The container image, ghcr.io/confighub/registrybot:vX.Y.Z (and :latest).
 #
-#   * The config bundle floats — a single moving :latest, no semver tag of its
-#     own — but the manifest inside it runs a concrete released image. It is
-#     rebuilt on a new vX.Y.Z tag AND on every push to main while the manifest
-#     names the latest release, so a config-only change republishes the bundle
-#     at the same image version without building a new image.
-#
-#   * The installer package is versioned as the release it runs and is published
-#     once per vX.Y.Z tag, after the image.
+#   * The installer package (package/), which runs that image, as
+#     oci://ghcr.io/confighub/packages/registrybot:X.Y.Z, after the image.
 #
 # The manifest and the package name the release they run, so the version is set
 # before the tag: scripts/set-version.sh vX.Y.Z, merged, then the tag. A tag
 # they don't name fails here, before anything is pushed.
 #
-# The bundle job is idempotent: the tarball is reproducible, so a main push that
-# did not change manifests/** re-pushes an identical digest and just re-points
-# :latest at it — a no-op. (We deliberately do not use an on.push.paths filter:
-# GitHub applies push paths filters to tag pushes too, which would make a
-# code-only release tag silently fail to trigger this workflow.)
+# manifests/registrybot.yaml is not published anywhere; it is applied from a
+# checkout of the release tag.
 on:
   push:
     tags: ['v*']
-    branches: [main]
   workflow_dispatch: {}
 
 permissions:
@@ -38,11 +28,10 @@ permissions:
 
 env:
   IMAGE: ghcr.io/confighub/registrybot
-  BUNDLE: ghcr.io/${{ github.repository_owner }}/configs/registrybot
 
 jobs:
-  # Build and push the semver image. Tag events only — a config-only change to
-  # main reuses the existing image.
+  # Build and push the semver image. The condition keeps a manual run on a
+  # branch from publishing anything.
   image:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -98,78 +87,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Publish the config bundle, whose manifest runs the release it names. Runs
-  # after image on a tag (needs), and also when image is skipped (config-only
-  # path) — but not if image actually failed.
-  bundle:
-    needs: [image]
-    if: ${{ always() && needs.image.result != 'failure' && needs.image.result != 'cancelled' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # need all tags to resolve the latest on the config-only path
-
-      - name: Resolve release version
-        id: ver
-        run: |
-          set -euo pipefail
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"           # this release
-          else
-            VERSION="$(git tag --list 'v*' --sort=-v:refname | head -n1)"  # latest existing
-          fi
-          if [[ -z "${VERSION}" ]]; then
-            echo "No v* release tag exists yet. Skipping bundle publish."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          elif [[ "${GITHUB_REF}" != refs/tags/v* ]] && ! scripts/set-version.sh --check "${VERSION}" 2>/dev/null; then
-            # On main, the manifest names a release not tagged yet, set for the
-            # next one: its tag publishes the bundle.
-            echo "::notice::The manifest does not run the latest release, ${VERSION}. Skipping bundle publish."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Publishing the bundle of ${VERSION}."
-          fi
-
-      - name: Install oras
-        if: steps.ver.outputs.skip != 'true'
-        uses: oras-project/setup-oras@v2
-
-      - name: Log in to ghcr.io
-        if: steps.ver.outputs.skip != 'true'
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            oras login ghcr.io --username "${{ github.actor }}" --password-stdin
-
-      - name: Build bundle contents
-        if: steps.ver.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p out/registrybot
-          cp manifests/*.yaml out/registrybot/
-
-      - name: Package and push bundle
-        if: steps.ver.outputs.skip != 'true'
-        run: |
-          set -euo pipefail
-          # Reproducible tarball: fixed entry order, ownership, and mtime, and
-          # gzip -n (no embedded name/timestamp), so identical content yields an
-          # identical layer digest run to run.
-          tar --sort=name --owner=0 --group=0 --numeric-owner \
-              --mtime='UTC 1970-01-01' -cf - -C out/registrybot . | gzip -n > registrybot.tar.gz
-
-          # The bundle floats: one moving :latest, no semver tag (semver lives on
-          # the image, which the manifest inside the bundle is pinned to). Pin
-          # org.opencontainers.image.created (oras otherwise stamps "now") so the
-          # manifest digest is stable for identical content.
-          oras push \
-            "${BUNDLE}:latest" \
-            --artifact-type application/vnd.confighub.config.bundle.v1 \
-            --annotation "org.opencontainers.image.created=1970-01-01T00:00:00Z" \
-            "registrybot.tar.gz:application/vnd.oci.image.layer.v1.tar+gzip"
-
-          echo "Pushed ${BUNDLE}:latest"
-
   # Publish the installer package (package/), which runs the image just pushed,
   # as oci://ghcr.io/confighub/packages/registrybot:<version>, signed keylessly.
   # Tag events only: a package version is the release's without the "v", and is
@@ -187,7 +104,7 @@ jobs:
     env:
       PACKAGE_REPO: ghcr.io/confighub/packages/registrybot
       # package.yml tests with the same one.
-      INSTALLER_VERSION: v0.3.2
+      INSTALLER_VERSION: v0.5.1
     steps:
       - uses: actions/checkout@v7
 
@@ -213,7 +130,7 @@ jobs:
           set -euo pipefail
           version=$(yq -r .installerMetadata.version package/installer.yaml)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          installer package package -o "${RUNNER_TEMP}/registrybot.tgz"
+          installer build package -o "${RUNNER_TEMP}/registrybot.tgz"
 
       - name: Check whether the version is published
         id: published

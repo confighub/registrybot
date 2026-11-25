@@ -28,7 +28,7 @@ permissions:
 
 env:
   # release.yml installs the same one.
-  INSTALLER_VERSION: v0.3.2
+  INSTALLER_VERSION: v0.5.1
 
 jobs:
   package:

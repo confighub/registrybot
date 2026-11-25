@@ -172,19 +172,13 @@ Polling alone is complete; webhooks add immediacy, and with discovery enabled th
 
 ## Deploy
 
-`manifests/registrybot.yaml` is a complete deployment: a Namespace, a ServiceAccount (no token mounted; the bot needs no Kubernetes API access), a single-replica Deployment whose `env` list carries every supported variable, and a ClusterIP Service in front of the webhook receiver. Credentials come from a Secret named `registrybot-secrets` that the manifest deliberately does not define; supply it out of band with keys `CONFIGHUB_AUTH_PRIVATE_KEY` (the JWK itself), `GITHUB_TOKEN`, and optionally `GITHUB_WEBHOOK_SECRET`. How the Service is exposed to GitHub is a per-cluster decision.
-
 ### Installer package
 
-`package/` is an [installer](https://github.com/confighub/installer) package of the same deployment, at a pinned release. Each release tag publishes it as `oci://ghcr.io/confighub/packages/registrybot:<version>`, the release without the `v`. Upload it as the base that each cluster's variant is cloned from; see [its README](package/README.md).
+`package/` is an [installer](https://github.com/confighub/installer) package of the deployment, at a pinned release. Each release tag publishes it as `oci://ghcr.io/confighub/packages/registrybot:<version>`, the release without the `v`. This is how registrybot is deployed from ConfigHub: `cub package install registrybot --space <space>` installs it as the base that each cluster's variant is cloned from. It is also where the source of the configuration document is chosen. See [its README](package/README.md).
 
-### Config bundle
+### Plain manifest
 
-`.github/workflows/release.yml` packages `manifests/` into an OCI bundle at `ghcr.io/confighub/configs/registrybot:latest`. The bundle floats, but the manifest in it runs a concrete released image, the one it names. Load it as a component base:
-
-```sh
-cub variant upload --component registrybot --variant base oci://ghcr.io/confighub/configs/registrybot
-```
+`manifests/registrybot.yaml` is the same deployment as one file, for a cluster that is not managed from ConfigHub: a Namespace, a ServiceAccount (no token mounted; the bot needs no Kubernetes API access), the ConfigMap that holds the configuration document, a single-replica Deployment whose `env` list carries every supported variable, and a ClusterIP Service in front of the webhook receiver. Apply it from a checkout of the release tag it names. Credentials come from a Secret named `registrybot-secrets` that neither the manifest nor the package defines; supply it out of band with keys `CONFIGHUB_AUTH_PRIVATE_KEY` (the JWK itself), `GITHUB_TOKEN`, and optionally `GITHUB_WEBHOOK_SECRET`. How the Service is exposed to GitHub is a per-cluster decision.
 
 ## Build and release
 
@@ -195,7 +189,7 @@ docker build -t ghcr.io/confighub/registrybot:dev .
 ```
 
 - `.github/workflows/build.yml` runs the tests and builds development images (`main`, `pr-N`, `sha-…`) on pushes to `main` and on PRs. No semver, no `:latest`.
-- `.github/workflows/release.yml` cuts a release on a `vX.Y.Z` tag: the semver image (plus `:latest`), the config bundle, and the installer package. The manifest and the package name the release they run, so set it first: `scripts/set-version.sh vX.Y.Z`, merge that, then push the tag. `release.yml` fails for a tag they don't name. The bundle is also republished on every `main` push while the manifest names the latest release, so a config-only change ships without a new image.
+- `.github/workflows/release.yml` cuts a release on a `vX.Y.Z` tag: the semver image (plus `:latest`) and the installer package. The manifest and the package name the release they run, so set it first: `scripts/set-version.sh vX.Y.Z`, merge that, then push the tag. `release.yml` fails for a tag they don't name.
 
 Every image carries its third-party notices at `/app/THIRD_PARTY_LICENSES.txt` and `/app/OS_LICENSE_NOTICE.txt`, and every released manifest has an SPDX SBOM attestation. After changing dependencies, run `./scripts/gen-third-party-licenses.sh` and commit the result; CI fails the PR if the committed file is stale or a copyleft dependency is linked in.
 
