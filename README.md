@@ -174,7 +174,7 @@ Polling alone is complete; webhooks add immediacy, and with discovery enabled th
 
 ### Installer package
 
-`package/` is an [installer](https://github.com/confighub/installer) package of the deployment, at a pinned release. Each release tag publishes it as `oci://ghcr.io/confighub/packages/registrybot:<version>`, the release without the `v`. This is how registrybot is deployed from ConfigHub: upload the package as the base that each cluster's variant is cloned from. It is also where the source of the configuration document is chosen. See [its README](package/README.md).
+`package/` is an [installer](https://github.com/confighub/installer) package of the deployment, at a pinned release. Each release tag publishes it as `oci://ghcr.io/confighub/packages/registrybot:<version>`, the release without the `v`. This is how registrybot is deployed from ConfigHub: `cub package install registrybot --space <space>` installs it as the base that each cluster's variant is cloned from. It is also where the source of the configuration document is chosen. See [its README](package/README.md).
 
 ### Plain manifest
 

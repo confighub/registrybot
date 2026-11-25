@@ -36,12 +36,10 @@ registrybot needs the following before installing it, set up as under [Setup](..
 - its grants on the Spaces its fact Units go to
 - with `config-unit`: its configuration Unit, and its grants on that Unit's Space
 
-It needs installer 0.3.0 or later. The credentials never go to ConfigHub: put them in the `registrybot-secrets` Secret in the install namespace yourself, or with your secret store, under the keys `CONFIGHUB_AUTH_PRIVATE_KEY`, `GITHUB_TOKEN`, and, with the `webhooks` component, `GITHUB_WEBHOOK_SECRET`.
+Installing takes cub v0.11.19 or later, which has the installer built in. The credentials never go to ConfigHub: put them in the `registrybot-secrets` Secret in the install namespace yourself, or with your secret store, under the keys `CONFIGHUB_AUTH_PRIVATE_KEY`, `GITHUB_TOKEN`, and, with the `webhooks` component, `GITHUB_WEBHOOK_SECRET`.
 
 ```sh
-installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.3 \
-  --work-dir registrybot-my-cluster --namespace registrybot
-installer upload --work-dir registrybot-my-cluster --space registrybot-my-cluster
+cub package install registrybot:0.5.3 --space registrybot-my-cluster --namespace registrybot
 kubectl create namespace registrybot
 kubectl create secret generic registrybot-secrets -n registrybot \
   --from-file=CONFIGHUB_AUTH_PRIVATE_KEY=$HOME/.confighub/keys/registrybot.jwk \
@@ -50,7 +48,9 @@ kubectl create secret generic registrybot-secrets -n registrybot \
 
 Add `--select webhooks` to receive webhooks, and `--select config-unit` to have registrybot read its configuration from a ConfigHub Unit.
 
-The document the package ships watches nothing and sends fact Units to the Space `registrybot`. After the upload, say what to watch in the `registrybot-config` Unit:
+`registrybot:0.5.3` is short for `oci://ghcr.io/confighub/packages/registrybot:0.5.3`; without a version, cub installs the newest release. Installing again into the same Space, at the same or a newer version, keeps the answers given before, so it is also how to upgrade.
+
+The document the package ships watches nothing and sends fact Units to the Space `registrybot`. After the install, say what to watch in the `registrybot-config` Unit:
 
 ```sh
 cub unit data-edit --space registrybot-my-cluster registrybot-config
@@ -69,9 +69,7 @@ To run another image, such as a mirror's copy, pass `--set-image ghcr.io/configh
 Every input has a default, so one install can be the base that each cluster's variant is cloned from. Set what differs in each variant's Units: `registrybot-config` for what it watches, and `registrybot`, which holds the Deployment, for its environment:
 
 ```sh
-installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.3 \
-  --work-dir registrybot-base --namespace registrybot
-installer upload --work-dir registrybot-base --space registrybot-base
+cub package install registrybot:0.5.3 --space registrybot-base --namespace registrybot
 cub variant create --target my-cluster/target my-cluster registrybot-base
 cub function do --space registrybot-my-cluster --unit registrybot \
   set-env registrybot REGISTRYBOT_POLL_INTERVAL=10m

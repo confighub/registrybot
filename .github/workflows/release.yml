@@ -104,7 +104,7 @@ jobs:
     env:
       PACKAGE_REPO: ghcr.io/confighub/packages/registrybot
       # package.yml tests with the same one.
-      INSTALLER_VERSION: v0.3.2
+      INSTALLER_VERSION: v0.5.1
     steps:
       - uses: actions/checkout@v7
 
@@ -130,7 +130,7 @@ jobs:
           set -euo pipefail
           version=$(yq -r .installerMetadata.version package/installer.yaml)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          installer package package -o "${RUNNER_TEMP}/registrybot.tgz"
+          installer build package -o "${RUNNER_TEMP}/registrybot.tgz"
 
       - name: Check whether the version is published
         id: published

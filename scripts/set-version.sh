@@ -38,7 +38,7 @@ if $check; then
     || { echo "package/bases/default/kustomization.yaml does not pin ${tag}" >&2; wrong=1; }
   [ "$(yq -r .installerMetadata.version "${pkg}/installer.yaml")" = "$VERSION" ] \
     || { echo "package/installer.yaml is not version ${VERSION}" >&2; wrong=1; }
-  ! grep -E "packages/registrybot:[0-9]" "$readme" | grep -qv "packages/registrybot:${VERSION} " \
+  ! grep -oE "registrybot:[0-9]+\.[0-9]+\.[0-9]+" "$readme" | grep -qvx "registrybot:${VERSION}" \
     || { echo "package/README.md does not pull version ${VERSION}" >&2; wrong=1; }
   [ "$wrong" = 0 ] || { echo "Run scripts/set-version.sh ${tag}, merge it, and tag again." >&2; exit 1; }
   echo "The deployments run ${IMAGE}:${tag}."
@@ -56,6 +56,6 @@ yq_edit() {
 perl -pi -e 's{^(\s*image: \Q$ENV{IMAGE}\E):v[0-9]+\.[0-9]+\.[0-9]+$}{$1:$ENV{TAG}}' "$manifest"
 yq_edit "${pkg}/bases/default/kustomization.yaml" '(.images[] | select(.name == strenv(IMAGE))).newTag = strenv(TAG)'
 yq_edit "${pkg}/installer.yaml" '.installerMetadata.version = strenv(VERSION)'
-perl -pi -e 's{(packages/registrybot):[0-9]+\.[0-9]+\.[0-9]+ }{$1:$ENV{VERSION} }g' "$readme"
+perl -pi -e 's{\bregistrybot:[0-9]+\.[0-9]+\.[0-9]+}{registrybot:$ENV{VERSION}}g' "$readme"
 
 "$0" --check "$tag"
