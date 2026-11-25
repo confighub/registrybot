@@ -53,8 +53,11 @@ Add `--select webhooks` to receive webhooks, and `--select config-unit` to have 
 The document the package ships watches nothing and sends fact Units to the Space `registrybot`. After the install, say what to watch in the `registrybot-config` Unit:
 
 ```sh
-cub unit data-edit --space registrybot-my-cluster registrybot-config
+cub function set --space registrybot-my-cluster --unit registrybot-config set-yq \
+  '.repositories += [{"repository": "ghcr.io/acme/app"}]'
 ```
+
+`cub unit data-edit --space registrybot-my-cluster registrybot-config` opens the whole document in an editor.
 
 | Input | Default | Description |
 |---|---|---|
