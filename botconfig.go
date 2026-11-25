@@ -294,7 +294,7 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 		w := watch{Key: key, Repo: ref}
 		w.Space = firstNonEmpty(rc.Space, defaultSpace)
 		if w.Space == "" {
-			return parsedConfig{}, fmt.Errorf("%s: no space: set space, defaults.space, or run with REGISTRYBOT_CONFIG_SPACE", where)
+			return parsedConfig{}, fmt.Errorf("%s: no space: set space or defaults.space (a document read from a ConfigHub unit defaults to that unit's space)", where)
 		}
 		w.Unit = rc.Unit
 		if w.Unit == "" {
@@ -324,7 +324,7 @@ func parseBotConfig(data []byte, fallbackSpace string) (parsedConfig, error) {
 
 	if doc.Discovery.FromWebhooks {
 		if defaultSpace == "" {
-			return parsedConfig{}, fmt.Errorf("discovery: no space for discovered repositories: set defaults.space or run with REGISTRYBOT_CONFIG_SPACE")
+			return parsedConfig{}, fmt.Errorf("discovery: no space for discovered repositories: set defaults.space (a document read from a ConfigHub unit defaults to that unit's space)")
 		}
 		excl, err := compilePatterns(doc.Discovery.Exclude)
 		if err != nil {

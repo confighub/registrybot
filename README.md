@@ -43,7 +43,7 @@ Downstream units link to `streams.<name>.tag` (or `streams.<name>.digest`), so t
 
 ### The configuration document
 
-What to watch is itself configuration, held in a ConfigHub unit of toolchain `AppConfig/YAML` and re-read every poll cycle. Editing that unit reconfigures the running bot; no restart, no redeploy. [examples/registrybot-config.yaml](examples/registrybot-config.yaml) is a commented example. The shape:
+What to watch is itself configuration: one YAML document, re-read every poll cycle, so a change reconfigures the running bot with no restart. [examples/registrybot-config.yaml](examples/registrybot-config.yaml) is a commented example, and [Where the document comes from](#where-the-document-comes-from) describes the two ways it reaches the bot. The shape:
 
 ```yaml
 pollInterval: 5m
@@ -51,7 +51,7 @@ webhooks:
   settle: 2m                        # reconcile once deliveries for a repository stop for this long
   maxDelay: 10m                     # ...but never later than this after the first delivery
 defaults:
-  space: registry-facts             # where fact units go; default: the config unit's own space
+  space: registry-facts             # where fact units go; read from a unit, default: that unit's space
   exclude: ["^sha-", "^pr-"]        # tags to ignore
   streams:
     main: { pattern: "^main$" }
@@ -65,6 +65,13 @@ repositories:
 ```
 
 A stream with `semver` is the highest tag that parses as a release version (`v1.2.3`, `1.2.3`, `1.2.3-rc.1`; strict `MAJOR.MINOR.PATCH`) and satisfies the constraint. A stream with only `pattern` is the most recently pushed tag matching it. Both together narrow by pattern first. The built-in `stable` stream, `{ semver: ">=0.0.0" }`, is always present unless you redefine it.
+
+### Where the document comes from
+
+The document reaches registrybot in one of two ways. It refuses to start when both are configured.
+
+- **A file**, `REGISTRYBOT_CONFIG_FILE`. In a cluster it is a ConfigMap mounted as a directory, shipped with the Deployment. This is what `manifests/registrybot.yaml` and the [installer package](package/README.md) set up by default. Uploaded to ConfigHub by the installer, the document is an `AppConfig/YAML` unit that ConfigHub renders into the ConfigMap, so it is edited in its own format and released with the rest of the deployment: a change takes a publish and a sync, and starts a new pod, because the upload puts a hash of the ConfigMap on the pod template. Applied as a plain manifest, a change to the ConfigMap needs no new pod: the kubelet refreshes the mounted file and the bot reads it at its next cycle. A document read from a file must name the space for fact units in `defaults.space`.
+- **A ConfigHub unit**, `REGISTRYBOT_CONFIG_SPACE` and `REGISTRYBOT_CONFIG_UNIT`. The bot reads the `AppConfig/YAML` unit from ConfigHub itself, every cycle, so an edit takes effect within one poll interval, with no publish and nothing gating it. The package's `config-unit` component sets this up.
 
 ### Discovery
 
@@ -99,9 +106,9 @@ Process configuration is environment only. Everything about *what* to watch live
 | `CONFIGHUB_URL` | yes | ConfigHub base URL, e.g. `https://hub.confighub.com` |
 | `CONFIGHUB_AUTH_PRIVATE_KEY` | one credential | An Ed25519 private JWK registered against a service account with `cub serviceaccount key add`, inline or as a file path |
 | `CONFIGHUB_TOKEN` | one credential | A static session token. Local development only; it is never refreshed |
-| `REGISTRYBOT_CONFIG_SPACE` | yes* | Slug of the space holding the configuration unit |
-| `REGISTRYBOT_CONFIG_UNIT` | no | Slug of the configuration unit. Default `registrybot` |
-| `REGISTRYBOT_CONFIG_FILE` | yes* | Local development: read the configuration document from this file instead of a unit. *One of `_SPACE` or `_FILE` is required |
+| `REGISTRYBOT_CONFIG_FILE` | yes* | Path of the configuration document, usually in a mounted ConfigMap. *Exactly one of `_FILE` and `_SPACE` is required; registrybot refuses to start with a file and a unit. See [Where the document comes from](#where-the-document-comes-from) |
+| `REGISTRYBOT_CONFIG_SPACE` | yes* | Slug of the space holding the configuration unit, when registrybot reads the document from ConfigHub itself |
+| `REGISTRYBOT_CONFIG_UNIT` | no | Slug of the configuration unit. Default `registrybot`. Not allowed with `REGISTRYBOT_CONFIG_FILE` |
 | `GITHUB_TOKEN` | yes | Classic personal access token with `read:packages`, or a GitHub App installation token with packages read. Used to list versions |
 | `GITHUB_API_URL` | no | Default `https://api.github.com`; set for GitHub Enterprise Server |
 | `GITHUB_WEBHOOK_SECRET` | no | The secret GitHub signs deliveries with. Absent: webhook endpoint disabled, polling only |
@@ -119,7 +126,7 @@ HTTP endpoints: `POST /webhooks/github` (signature-checked), `GET /healthz`, `GE
 Install the `cub` CLI (see [docs.confighub.com](https://docs.confighub.com)), then:
 
 ```sh
-# 1. A space for the bot's own configuration (fact units can go here too, or elsewhere).
+# 1. A space for the fact units, and for the bot's configuration unit if it reads one.
 cub space create registrybot
 
 # 2. The service account the bot runs as, and a key for it. --generate stores the
@@ -127,36 +134,37 @@ cub space create registrybot
 cub serviceaccount create registrybot
 cub serviceaccount key add registrybot --generate registrybot
 
-# 3. What the bot needs on the space: read the configuration unit, list, create
-#    and write fact units.
+# 3. What the bot needs on the space: list, create and write fact units, and
+#    read the configuration unit if it reads one.
 cub space update registrybot \
   --permission View:serviceaccount:registrybot \
   --permission ViewChildren:serviceaccount:registrybot \
   --permission CreateChildren:serviceaccount:registrybot \
   --permission EditChildren:serviceaccount:registrybot
 
-# 4. The configuration document.
-cub unit create --space registrybot --toolchain AppConfig/YAML \
-  registrybot examples/registrybot-config.yaml
 ```
 
-The service account has no organization role, so it can do only what these grants allow. If fact units go to other spaces (`defaults.space` or a repository's `space` in the configuration document), grant the same on each of them. Run the bot:
+The service account has no organization role, so it can do only what these grants allow. If fact units go to other spaces (`defaults.space` or a repository's `space` in the configuration document), grant the same on each of them. Run the bot with the document in a file:
 
 ```sh
 CONFIGHUB_URL=https://hub.confighub.com \
 CONFIGHUB_AUTH_PRIVATE_KEY=~/.confighub/keys/registrybot.jwk \
-REGISTRYBOT_CONFIG_SPACE=registrybot \
+REGISTRYBOT_CONFIG_FILE=examples/registrybot-config.yaml \
 GITHUB_TOKEN=ghp_... \
 registrybot
 ```
 
-Within one poll cycle each repository in the document has a fact unit. Edit the document (`cub unit update ...`) to add repositories or change streams; the bot picks it up on its next cycle.
+Within one poll cycle each repository in the document has a fact unit. Edit the document to add repositories or change streams; the bot picks it up on its next cycle.
 
-For local development against a file instead of a unit:
+To have the bot read the document from a ConfigHub unit instead, create the unit and name its space in place of the file:
 
 ```sh
-REGISTRYBOT_CONFIG_FILE=examples/registrybot-config.yaml CONFIGHUB_TOKEN=$(cub auth get-token) ...
+cub unit create --space registrybot --toolchain AppConfig/YAML \
+  registrybot examples/registrybot-config.yaml
+REGISTRYBOT_CONFIG_SPACE=registrybot ...
 ```
+
+For local development, `CONFIGHUB_TOKEN=$(cub auth get-token)` stands in for the private key.
 
 ### Webhooks
 
@@ -197,6 +205,6 @@ This is a working prototype built to explore what a registry integration looks l
 
 - **ghcr.io only.** Observation goes through the GitHub Packages API. An OCI distribution backend (`/v2/<name>/tags/list` plus manifest HEADs) would cover any registry and public images without a token, at the cost of timestamps.
 - **Discovery is webhook-only.** A repository that never fires a webhook (published before the hook existed) is not discovered; list it explicitly or push once. A `discovery.fromListing` that enumerates an organization's packages would close that gap.
-- **Configuration reload is by polling.** Subscribing to ConfigHub's event log for changes to the configuration unit would make edits take effect at once.
+- **Configuration reload is by polling**, of the file or of the unit. Subscribing to ConfigHub's event log for changes to the configuration unit would make edits to it take effect at once.
 - **Single replica.** Two instances would race on the same units. Leader election is unnecessary at this scale; a per-repository sharding key would be the way to scale out.
 - **Schema.** `registrybot.confighub.com/v1alpha4` will change as consumers tell us what they need to link to. Existing fact units keep the schema annotation they were created with; `configHub.configSchema` in the data is authoritative.

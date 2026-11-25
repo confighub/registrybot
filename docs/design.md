@@ -28,9 +28,13 @@ A webhook still carries no facts. It admits a repository into the watch set, and
 
 ## Configuration through ConfigHub
 
-The bot's process configuration is environment variables, and small: how to reach ConfigHub and GitHub, and where its configuration document is. What to watch — repositories, streams, exclusions, poll interval — is a document in a ConfigHub unit. The bot is already a ConfigHub client, so the marginal cost of reading its own configuration from a unit is one list call per cycle (the listing carries `DataHash`; the body is fetched only when it changed). In return the watch list has history, review, and the same tooling as everything else.
+The bot's process configuration is environment variables, and small: how to reach ConfigHub and GitHub, and where its configuration document is. What to watch — repositories, streams, exclusions, poll interval — is a document in a ConfigHub unit, so the watch list has history, review, and the same tooling as everything else. There are two ways the document gets from that unit to the bot, and the bot takes exactly one of them.
 
-The document is re-read every cycle. Subscribing to the event log for changes to that one unit is the obvious refinement and was left out to keep the first cut small.
+**Shipped with the deployment** is the default. The document is a file in a ConfigMap that the Deployment mounts. In ConfigHub it is an `AppConfig/YAML` unit in the deployment's space, which ConfigHub renders into the ConfigMap's unit through a link, so a change to it is released, promoted and gated like a change to the Deployment. This is how any application gets a configuration file, and it needs nothing of the application except reading a file. The installer's upload puts a hash of the ConfigMap on the pod template, so in ConfigHub a change to the document starts a new pod. With one replica and a Recreate strategy that is a few seconds without the webhook receiver, which the next poll makes up for. Outside ConfigHub the bot needs no new pod: it re-reads the file every cycle, and the ConfigMap is mounted as a directory so the kubelet refreshes it.
+
+**Read from ConfigHub by the bot** was the first cut and stays as an option. The bot is already a ConfigHub client, so the marginal cost of reading its own configuration from a unit is one list call per cycle (the listing carries `DataHash`; the body is fetched only when it changed). An edit takes effect within one poll interval with no publish. That is also its hazard: nothing stands between the edit and the running bot, and the configuration is not versioned with the deployment it configures. Subscribing to the event log for changes to that one unit is the obvious refinement and was left out.
+
+The bot refuses to start with both a file and a unit configured. Ranking them would make which document it runs on depend on a precedence nobody can see from the deployment, and edits to the other one would silently do nothing. One consequence: a document read from a unit defaults `defaults.space` to that unit's space, and a document read from a file has no such default and must name it.
 
 ## Two triggers, one path
 

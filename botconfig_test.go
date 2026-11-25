@@ -4,6 +4,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -163,5 +164,27 @@ func TestParseWebhookSettle(t *testing.T) {
 		if _, err := parseBotConfig([]byte(bad), "facts"); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}
+	}
+}
+
+// The document the installer package and the plain manifest ship must parse,
+// with or without the configHub block: registrybot reads it rendered by
+// ConfigHub, which strips the block, and as kustomize generates it, which
+// doesn't.
+func TestParseShippedConfigDocument(t *testing.T) {
+	data, err := os.ReadFile("package/components/config-configmap/registrybot.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "configHub:") {
+		t.Fatal("the shipped document has no configHub block, which names it for ConfigHub")
+	}
+	// No fallback space: a document read from a file has none.
+	p, err := parseBotConfig(data, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Watches) != 0 || p.Discovery.Enabled {
+		t.Errorf("the shipped document watches %d repositories, discovery %v; want it to watch nothing", len(p.Watches), p.Discovery.Enabled)
 	}
 }

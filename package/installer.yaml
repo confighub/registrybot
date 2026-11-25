@@ -20,9 +20,34 @@ spec:
         registrybot's Namespace, a ServiceAccount with no token, the
         single-replica Deployment, and a ClusterIP Service in front of its
         webhook receiver. It reads its credentials from the
-        registrybot-secrets Secret, supplied out of band.
+        registrybot-secrets Secret, supplied out of band. One of the
+        config-configmap and config-unit components adds where its
+        configuration document comes from.
 
   components:
+    - name: config-configmap
+      path: components/config-configmap
+      default: true
+      description: |
+        registrybot's configuration document ships with the Deployment, as the
+        registrybot-config ConfigMap, mounted as a file. Uploaded to ConfigHub
+        it is an AppConfig/YAML Unit, registrybot-config, in the install's
+        Space: edit it there and publish, like the rest of the install.
+    - name: config-unit
+      path: components/config-unit
+      description: |
+        registrybot reads its configuration document from a ConfigHub Unit
+        itself, every poll cycle, so a change to the Unit takes effect with no
+        publish. The Unit is yours to create: registrybot, in the Space the
+        config_space input names.
+      transformers:
+        - toolchain: Kubernetes/YAML
+          description: Point registrybot at the Space of its configuration Unit.
+          invocations:
+            - name: set-env
+              args:
+                - registrybot
+                - "REGISTRYBOT_CONFIG_SPACE={{ or .Inputs.config_space \"confighubplaceholder\" }}"
     - name: webhooks
       path: components/webhooks
       description: |
@@ -30,16 +55,23 @@ spec:
         the GITHUB_WEBHOOK_SECRET key of registrybot-secrets. Exposing the
         Service to GitHub is up to the cluster.
 
+  componentGroups:
+    - name: config-source
+      description: Where registrybot reads its configuration document from.
+      components: [config-configmap, config-unit]
+      required: true
+
   # Every input has a default, so an install uploaded as a base for ConfigHub
   # variants can leave them unset, and each variant changes what differs.
   inputs:
     - name: config_space
       type: string
       default: registrybot
-      prompt: Space of registrybot's configuration Unit
+      prompt: Space of registrybot's configuration Unit (config-unit only)
       description: |
-        The Space of the AppConfig/YAML Unit that says which repositories to
-        watch, REGISTRYBOT_CONFIG_SPACE. The Unit is named registrybot unless
+        Used with the config-unit component only: the Space of the
+        AppConfig/YAML Unit that says which repositories to watch,
+        REGISTRYBOT_CONFIG_SPACE. The Unit is named registrybot unless
         REGISTRYBOT_CONFIG_UNIT says otherwise.
     - name: confighub_url
       type: string
@@ -68,7 +100,6 @@ spec:
           args:
             - registrybot
             - "CONFIGHUB_URL={{ or .Inputs.confighub_url \"confighubplaceholder\" }}"
-            - "REGISTRYBOT_CONFIG_SPACE={{ or .Inputs.config_space \"confighubplaceholder\" }}"
             - "METRICS_ENABLED={{ .Inputs.metrics }}"
     - toolchain: Kubernetes/YAML
       whereResource: "ConfigHub.ResourceType = 'apps/v1/Deployment'"

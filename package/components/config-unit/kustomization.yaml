@@ -1,0 +1,21 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  # registrybot reads its configuration document from a ConfigHub Unit, every
+  # poll cycle. The config_space input sets the Space.
+  - target:
+      kind: Deployment
+      name: registrybot
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: REGISTRYBOT_CONFIG_SPACE
+          value: registrybot
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: REGISTRYBOT_CONFIG_UNIT
+          value: registrybot

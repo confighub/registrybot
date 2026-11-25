@@ -33,6 +33,28 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
+# registrybot's configuration document. A change to it reaches the running bot
+# without a restart: the kubelet refreshes the mounted file within a minute or
+# so, and registrybot re-reads it every poll cycle.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registrybot-config
+  namespace: registrybot
+data:
+  registrybot.yaml: |
+    pollInterval: 5m
+
+    defaults:
+      # Space (slug) the fact units are created in. registrybot's service
+      # account needs to create and edit units there.
+      space: registrybot
+
+    # Nothing is watched until a repository is listed here, or discovery is
+    # turned on.
+    repositories: []
+    #  - repository: ghcr.io/acme/app
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -104,12 +126,20 @@ spec:
             #       key: CONFIGHUB_TOKEN
 
             # ── Configuration document (required) ────────────────────────────
-            # The AppConfig/YAML unit that says which repositories to watch.
-            # Re-read every poll cycle; see examples/registrybot-config.yaml.
-            - name: REGISTRYBOT_CONFIG_SPACE
-              value: "registrybot"
-            - name: REGISTRYBOT_CONFIG_UNIT
-              value: "registrybot"
+            # Which repositories to watch; see examples/registrybot-config.yaml.
+            # Re-read every poll cycle. It comes from exactly one place: this
+            # file, which is the registrybot-config ConfigMap below ...
+            - name: REGISTRYBOT_CONFIG_FILE
+              value: "/etc/registrybot/registrybot.yaml"
+            # ... or an AppConfig/YAML unit registrybot reads from ConfigHub
+            # itself. To use the unit, set these, and remove
+            # REGISTRYBOT_CONFIG_FILE, the config volume and its mount, and the
+            # ConfigMap: registrybot refuses to start with both a file and a
+            # unit.
+            # - name: REGISTRYBOT_CONFIG_SPACE
+            #   value: "registrybot"
+            # - name: REGISTRYBOT_CONFIG_UNIT
+            #   value: "registrybot"
 
             # ── GitHub (required) ────────────────────────────────────────────
             # Classic PAT with read:packages, or a GitHub App installation token
@@ -175,6 +205,16 @@ spec:
             runAsNonRoot: true
             capabilities:
               drop: ["ALL"]
+          # The whole directory, not a subPath: a subPath mount is never
+          # refreshed when the ConfigMap changes.
+          volumeMounts:
+            - name: config
+              mountPath: /etc/registrybot
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: registrybot-config
 ---
 # ClusterIP Service in front of the webhook receiver and the read-only /status
 # endpoint. How it is exposed to GitHub is a per-cluster decision (Ingress,

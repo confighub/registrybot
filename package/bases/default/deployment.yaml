@@ -69,12 +69,9 @@ spec:
             #       key: CONFIGHUB_TOKEN
 
             # ── Configuration document (required) ────────────────────────────
-            # The AppConfig/YAML unit that says which repositories to watch.
-            # Re-read every poll cycle; see examples/registrybot-config.yaml.
-            - name: REGISTRYBOT_CONFIG_SPACE
-              value: "registrybot"
-            - name: REGISTRYBOT_CONFIG_UNIT
-              value: "registrybot"
+            # Which repositories to watch. One of the package's config-configmap
+            # and config-unit components says where registrybot reads it from,
+            # and adds the variables for that here.
 
             # ── GitHub (required) ────────────────────────────────────────────
             # Classic PAT with read:packages, or a GitHub App installation token

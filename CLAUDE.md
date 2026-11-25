@@ -15,6 +15,14 @@ subpackages; one concern per file, named for it.
 - Process configuration is environment only (`config.go`); everything about
   *what* to watch is the configuration document (`botconfig.go`), so it can be
   changed through ConfigHub. Do not add watch-list knobs as env vars.
+- The document has exactly one source: a file (`REGISTRYBOT_CONFIG_FILE`, a
+  mounted ConfigMap, the default in the manifest and the package) or a unit
+  the bot reads itself (`REGISTRYBOT_CONFIG_SPACE`/`_UNIT`, the package's
+  `config-unit` component). `loadConfig` refuses both; do not add a
+  precedence. The document the package ships
+  (`package/components/config-configmap/registrybot.yaml`) and the one inside
+  `manifests/registrybot.yaml`'s ConfigMap must stay the same apart from the
+  `configHub` block and comments; `scripts/test-package.sh` checks it.
 - Metrics (`metrics.go`) follow k8sbot's: OpenTelemetry counters in the
   package-level `meters` (no-op until `setupMetrics`), served at `/metrics` on
   `METRICS_ADDR` through the OTel Prometheus exporter on a private registry,

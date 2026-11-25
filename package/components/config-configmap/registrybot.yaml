@@ -1,0 +1,23 @@
+# registrybot's configuration document: which repositories to watch, and where
+# their fact Units go. examples/registrybot-config.yaml in the registrybot
+# repository shows every key.
+#
+# Uploaded to ConfigHub, this file is the AppConfig/YAML Unit
+# registrybot-config, which ConfigHub renders into the registrybot-config
+# ConfigMap (the Unit registrybot-config-rendered) that the Deployment mounts.
+# Edit the registrybot-config Unit and publish the Space.
+configHub:
+  configName: registrybot.yaml
+  configSchema: registrybot.confighub.com/config
+
+pollInterval: 5m
+
+defaults:
+  # Space (slug) the fact Units are created in. registrybot's service account
+  # needs to create and edit Units there.
+  space: registrybot
+
+# Nothing is watched until a repository is listed here, or discovery is turned
+# on.
+repositories: []
+#  - repository: ghcr.io/acme/app

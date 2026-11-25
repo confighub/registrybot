@@ -7,7 +7,8 @@
 # The package's validators (vet-schemas, vet-images, vet-pod-security-standard,
 # ...) run in every render. It also checks that the package runs the release
 # it is versioned as, as manifests/registrybot.yaml does, and that its
-# Deployment has the environment that manifests/registrybot.yaml's has.
+# Deployment has the environment that manifests/registrybot.yaml's has, and
+# that every render gives registrybot exactly one configuration source.
 #
 # Needs installer 0.3.0 or later (or $INSTALLER), and yq on PATH, and no
 # ConfigHub server.
@@ -98,10 +99,15 @@ expect_refusal() {
 }
 
 connected=(--input config_space=registry-facts --input confighub_url=https://hub.example.com)
-expect_render base ""
-expect_render default "" --components default "${connected[@]}"
-expect_render all webhooks --components all "${connected[@]}"
-expect_render webhooks webhooks --select webhooks "${connected[@]}"
+# One of config-configmap and config-unit is always selected: the ConfigMap
+# unless config-unit is asked for.
+expect_render base config-configmap
+expect_render default config-configmap --components default "${connected[@]}"
+expect_render all config-configmap,webhooks --components all "${connected[@]}"
+expect_render webhooks config-configmap,webhooks --select webhooks "${connected[@]}"
+expect_render unit config-unit --select config-unit "${connected[@]}"
+expect_refusal both-sources 'alternatives in group "config-source"' \
+  --select config-configmap --select config-unit
 
 # Rendered with no inputs, as a base, the Deployment has the plain manifest's
 # environment.
@@ -109,9 +115,41 @@ if ! diff -u <(env_list "${repo}/manifests/registrybot.yaml") \
   <(env_list "${work}/base/out/manifests/deployment-registrybot-registrybot.yaml") >&2; then
   fail "base: the environment differs from manifests/registrybot.yaml"
 fi
-for v in REGISTRYBOT_CONFIG_SPACE:registry-facts CONFIGHUB_URL:https://hub.example.com; do
-  [ "$(env_of default "${v%%:*}")" = "${v#*:}" ] || fail "default: ${v%%:*} is $(env_of default "${v%%:*}"), want ${v#*:}"
+[ "$(env_of default CONFIGHUB_URL)" = https://hub.example.com ] || fail "default: CONFIGHUB_URL is $(env_of default CONFIGHUB_URL)"
+
+# The configuration document comes from one place. registrybot refuses to start
+# with both a file and a unit, so a render must never set both.
+# config_file_of <file>: the configuration document in the registrybot-config
+# ConfigMap in file, without the configHub block ConfigHub strips from it.
+config_file_of() {
+  yq 'select(.kind == "ConfigMap" and .metadata.name == "registrybot-config") | .data."registrybot.yaml"' "$1" |
+    yq 'del(.configHub) | ... comments=""'
+}
+# mount_of <case>: the ConfigMap mounted at /etc/registrybot.
+mount_of() {
+  yq -r '.spec.template.spec as $p | $p.containers[0].volumeMounts[] | select(.mountPath == "/etc/registrybot") | .name as $n | $p.volumes[] | select(.name == $n) | .configMap.name' \
+    "${work}/$1/out/manifests/deployment-registrybot-registrybot.yaml" 2>/dev/null
+}
+for c in base default all webhooks; do
+  [ "$(env_of "$c" REGISTRYBOT_CONFIG_FILE)" = /etc/registrybot/registrybot.yaml ] ||
+    fail "${c}: REGISTRYBOT_CONFIG_FILE is $(env_of "$c" REGISTRYBOT_CONFIG_FILE)"
+  [ -z "$(env_of "$c" REGISTRYBOT_CONFIG_SPACE)$(env_of "$c" REGISTRYBOT_CONFIG_UNIT)" ] ||
+    fail "${c}: names a configuration unit as well as a file"
+  [ "$(mount_of "$c")" = registrybot-config ] || fail "${c}: /etc/registrybot mounts '$(mount_of "$c")', want registrybot-config"
+  cm="${work}/${c}/out/manifests/configmap-registrybot-registrybot-config.yaml"
+  [ "$(yq -r '.metadata.annotations."confighub.com/toolchain"' "$cm")" = AppConfig/YAML ] ||
+    fail "${c}: the registrybot-config ConfigMap is not marked AppConfig/YAML"
 done
+[ "$(env_of unit REGISTRYBOT_CONFIG_SPACE)" = registry-facts ] || fail "unit: REGISTRYBOT_CONFIG_SPACE is $(env_of unit REGISTRYBOT_CONFIG_SPACE), want registry-facts"
+[ "$(env_of unit REGISTRYBOT_CONFIG_UNIT)" = registrybot ] || fail "unit: REGISTRYBOT_CONFIG_UNIT is $(env_of unit REGISTRYBOT_CONFIG_UNIT), want registrybot"
+[ -z "$(env_of unit REGISTRYBOT_CONFIG_FILE)" ] || fail "unit: names a configuration file as well as a unit"
+[ -z "$(mount_of unit)" ] || fail "unit: mounts a configuration ConfigMap"
+[ ! -e "${work}/unit/out/manifests/configmap-registrybot-registrybot-config.yaml" ] || fail "unit: renders the registrybot-config ConfigMap"
+# The plain manifest starts from the same document as the package.
+if ! diff -u <(config_file_of "${repo}/manifests/registrybot.yaml") \
+  <(config_file_of "${work}/base/out/manifests/configmap-registrybot-registrybot-config.yaml") >&2; then
+  fail "base: the configuration document differs from manifests/registrybot.yaml"
+fi
 # Webhooks are off unless the component adds their secret.
 [ "$(secret_keys_of default)" = CONFIGHUB_AUTH_PRIVATE_KEY,GITHUB_TOKEN ] ||
   fail "default: reads registrybot-secrets keys $(secret_keys_of default)"
@@ -125,7 +163,7 @@ ports_of() {
     "${work}/$1/out/manifests/deployment-registrybot-registrybot.yaml"
 }
 [ "$(ports_of base)" = http,metrics ] || fail "base: ports are $(ports_of base), want http,metrics"
-expect_render no-metrics "" --input metrics=false
+expect_render no-metrics config-configmap --input metrics=false
 [ "$(env_of no-metrics METRICS_ENABLED)" = false ] || fail "no-metrics: METRICS_ENABLED is $(env_of no-metrics METRICS_ENABLED), want false"
 [ "$(ports_of no-metrics)" = http ] || fail "no-metrics: ports are $(ports_of no-metrics), want http"
 expect_refusal latest-image vet-images \
