@@ -24,9 +24,9 @@ type config struct {
 	StaticToken        string
 	ConfigHubUserAgent string
 
-	// Where the bot's configuration document lives. ConfigSpace and ConfigUnit
-	// name a unit in ConfigHub; ConfigFile points at a local YAML file instead
-	// and is meant for development.
+	// Where the bot's configuration document comes from. ConfigSpace and
+	// ConfigUnit name a unit the bot reads from ConfigHub; ConfigFile is a YAML
+	// file instead, usually a mounted ConfigMap. Exactly one source is set.
 	ConfigSpace string
 	ConfigUnit  string
 	ConfigFile  string
@@ -80,9 +80,6 @@ func loadConfig() (config, error) {
 	}
 	cfg.ConfigHubUserAgent = "registrybot/" + version
 
-	if cfg.ConfigUnit == "" {
-		cfg.ConfigUnit = defaultConfigUnit
-	}
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = defaultListenAddr
 	}
@@ -119,6 +116,22 @@ func loadConfig() (config, error) {
 	}
 	if len(missing) > 0 {
 		return config{}, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	// Exactly one source for the configuration document. With both set, which
+	// document the bot runs on would depend on a precedence nobody can see from
+	// the deployment, and an edit to the other one would do nothing.
+	if cfg.ConfigFile != "" {
+		for name, v := range map[string]string{
+			"REGISTRYBOT_CONFIG_SPACE": cfg.ConfigSpace,
+			"REGISTRYBOT_CONFIG_UNIT":  cfg.ConfigUnit,
+		} {
+			if v != "" {
+				return config{}, fmt.Errorf("REGISTRYBOT_CONFIG_FILE and %s are both set; the configuration document comes from the file or from a ConfigHub unit, so unset one (with a file, name the space for fact units in its defaults.space)", name)
+			}
+		}
+	} else if cfg.ConfigUnit == "" {
+		cfg.ConfigUnit = defaultConfigUnit
 	}
 
 	// Exactly one credential kind. Ranking them silently would make "who is the

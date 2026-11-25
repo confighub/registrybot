@@ -1,0 +1,42 @@
+# Copyright (C) ConfigHub, Inc.
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# registrybot.yaml stays a YAML file of its own. The annotation has the upload
+# make it an AppConfig/YAML Unit that ConfigHub renders into this ConfigMap.
+configMapGenerator:
+  - name: registrybot-config
+    files:
+      - registrybot.yaml
+    options:
+      # A stable name: the ConfigMap is updated in place. Uploaded to
+      # ConfigHub, the pod template gets a hash of it, so a change to the
+      # document starts a new pod. Applied as plain manifests, the kubelet
+      # refreshes the mounted file and registrybot re-reads it every poll cycle.
+      disableNameSuffixHash: true
+      annotations:
+        confighub.com/toolchain: AppConfig/YAML
+patches:
+  - target:
+      kind: Deployment
+      name: registrybot
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: REGISTRYBOT_CONFIG_FILE
+          value: /etc/registrybot/registrybot.yaml
+      # The whole directory, not a subPath: a subPath mount is never refreshed
+      # when the ConfigMap changes in place.
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: config
+            mountPath: /etc/registrybot
+            readOnly: true
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: config
+            configMap:
+              name: registrybot-config

@@ -8,8 +8,12 @@ The base holds all of registrybot:
 - the single-replica Deployment of `manifests/registrybot.yaml`, at a pinned image tag, with registrybot's environment in its `env`, reading its credentials from the `registrybot-secrets` Secret, which is not part of the package
 - a ClusterIP Service in front of the webhook receiver and `/status`
 
+One of two components says where registrybot's [configuration document](../README.md#where-the-document-comes-from) comes from. They are alternatives; `config-configmap` is selected unless you select `config-unit`.
+
 | Component | Adds |
 |---|---|
+| `config-configmap` (default) | The document as `registrybot.yaml` in the `registrybot-config` ConfigMap, mounted at `/etc/registrybot`. Uploaded, it is the AppConfig/YAML Unit `registrybot-config` in the install's Space, which ConfigHub renders into the ConfigMap's Unit, `registrybot-config-rendered`. Edit `registrybot-config` and publish the Space; the pod is replaced when the document changes. |
+| `config-unit` | `REGISTRYBOT_CONFIG_SPACE` and `REGISTRYBOT_CONFIG_UNIT`: registrybot reads the document from a ConfigHub Unit itself, every poll cycle, with no publish. The Unit is yours to create. |
 | `webhooks` | `GITHUB_WEBHOOK_SECRET` from `registrybot-secrets`, which turns on `POST /webhooks/github`. Exposing the Service to GitHub is up to the cluster. |
 
 A render fails validation if:
@@ -29,8 +33,8 @@ cub function do --space registrybot-my-cluster --unit registrybot \
 
 registrybot needs the following before installing it, set up as under [Setup](../README.md#setup):
 - a service account, and a key of it (`cub serviceaccount key add --generate`)
-- its grants on the Space of its configuration Unit, and on the Spaces its fact Units go to
-- its configuration Unit
+- its grants on the Spaces its fact Units go to
+- with `config-unit`: its configuration Unit, and its grants on that Unit's Space
 
 It needs installer 0.3.0 or later. The credentials never go to ConfigHub: put them in the `registrybot-secrets` Secret in the install namespace yourself, or with your secret store, under the keys `CONFIGHUB_AUTH_PRIVATE_KEY`, `GITHUB_TOKEN`, and, with the `webhooks` component, `GITHUB_WEBHOOK_SECRET`.
 
@@ -44,11 +48,17 @@ kubectl create secret generic registrybot-secrets -n registrybot \
   --from-literal=GITHUB_TOKEN=ghp_...
 ```
 
-Add `--select webhooks` to receive webhooks.
+Add `--select webhooks` to receive webhooks, and `--select config-unit` to have registrybot read its configuration from a ConfigHub Unit.
+
+The document the package ships watches nothing and sends fact Units to the Space `registrybot`. After the upload, say what to watch in the `registrybot-config` Unit:
+
+```sh
+cub unit data-edit --space registrybot-my-cluster registrybot-config
+```
 
 | Input | Default | Description |
 |---|---|---|
-| `config_space` | `registrybot` | The Space of registrybot's configuration Unit, `REGISTRYBOT_CONFIG_SPACE`. |
+| `config_space` | `registrybot` | With `config-unit` only: the Space of registrybot's configuration Unit, `REGISTRYBOT_CONFIG_SPACE`. |
 | `confighub_url` | `https://hub.confighub.com` | The ConfigHub URL as the cluster reaches it. |
 | `metrics` | `true` | Whether registrybot serves Prometheus metrics. `false` sets `METRICS_ENABLED=false` and drops the Deployment's `metrics` port. |
 
@@ -56,7 +66,7 @@ To run another image, such as a mirror's copy, pass `--set-image ghcr.io/configh
 
 ### As a base for variants
 
-Every input has a default, so one install can be the base that each cluster's variant is cloned from. Set what differs in each variant's `registrybot` Unit, which holds the Deployment:
+Every input has a default, so one install can be the base that each cluster's variant is cloned from. Set what differs in each variant's Units: `registrybot-config` for what it watches, and `registrybot`, which holds the Deployment, for its environment:
 
 ```sh
 installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.3 \
@@ -64,12 +74,12 @@ installer setup --pull oci://ghcr.io/confighub/packages/registrybot:0.5.3 \
 installer upload --work-dir registrybot-base --space registrybot-base
 cub variant create --target my-cluster/target my-cluster registrybot-base
 cub function do --space registrybot-my-cluster --unit registrybot \
-  set-env registrybot REGISTRYBOT_CONFIG_SPACE=my-registry-facts
+  set-env registrybot REGISTRYBOT_POLL_INTERVAL=10m
 ```
 
 ## Testing
 
-`scripts/test-package.sh` renders the package for each preset with `installer setup`, running its validators, and checks the renders it has to refuse. It also checks that the Deployment has the environment of `manifests/registrybot.yaml`. It needs installer 0.3.0 or later (or `$INSTALLER`) and yq, and no ConfigHub server. The `package` workflow runs it on every change.
+`scripts/test-package.sh` renders the package for each preset with `installer setup`, running its validators, and checks the renders it has to refuse. It also checks that the Deployment has the environment of `manifests/registrybot.yaml`, that the two ship the same configuration document, and that every render gives registrybot one configuration source. It needs installer 0.3.0 or later (or `$INSTALLER`) and yq, and no ConfigHub server. The `package` workflow runs it on every change.
 
 ## Publishing
 

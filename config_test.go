@@ -3,7 +3,10 @@
 
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // setBaseEnv sets the required variables and clears the optional ones, so each
 // case starts from a known state.
@@ -54,4 +57,54 @@ func TestLoadConfigMetrics(t *testing.T) {
 			t.Error("loadConfig accepted METRICS_ENABLED=no")
 		}
 	})
+}
+
+func TestLoadConfigDocumentSource(t *testing.T) {
+	t.Run("a unit, named registrybot unless told otherwise", func(t *testing.T) {
+		setBaseEnv(t)
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ConfigFile != "" || cfg.ConfigSpace != "registrybot" || cfg.ConfigUnit != "registrybot" {
+			t.Errorf("source = file %q, unit %s/%s; want unit registrybot/registrybot", cfg.ConfigFile, cfg.ConfigSpace, cfg.ConfigUnit)
+		}
+	})
+
+	t.Run("a file", func(t *testing.T) {
+		setBaseEnv(t)
+		t.Setenv("REGISTRYBOT_CONFIG_SPACE", "")
+		t.Setenv("REGISTRYBOT_CONFIG_FILE", "/etc/registrybot/registrybot.yaml")
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ConfigFile != "/etc/registrybot/registrybot.yaml" || cfg.ConfigSpace != "" || cfg.ConfigUnit != "" {
+			t.Errorf("source = file %q, unit %q/%q; want the file only", cfg.ConfigFile, cfg.ConfigSpace, cfg.ConfigUnit)
+		}
+	})
+
+	t.Run("neither is refused", func(t *testing.T) {
+		setBaseEnv(t)
+		t.Setenv("REGISTRYBOT_CONFIG_SPACE", "")
+		if _, err := loadConfig(); err == nil {
+			t.Error("loadConfig accepted no configuration source")
+		}
+	})
+
+	for _, unitVar := range []string{"REGISTRYBOT_CONFIG_SPACE", "REGISTRYBOT_CONFIG_UNIT"} {
+		t.Run("a file and "+unitVar+" are refused", func(t *testing.T) {
+			setBaseEnv(t)
+			t.Setenv("REGISTRYBOT_CONFIG_SPACE", "")
+			t.Setenv("REGISTRYBOT_CONFIG_FILE", "/etc/registrybot/registrybot.yaml")
+			t.Setenv(unitVar, "registry-facts")
+			_, err := loadConfig()
+			if err == nil {
+				t.Fatalf("loadConfig accepted REGISTRYBOT_CONFIG_FILE with %s", unitVar)
+			}
+			if !strings.Contains(err.Error(), unitVar) {
+				t.Errorf("error %q does not name %s", err, unitVar)
+			}
+		})
+	}
 }
