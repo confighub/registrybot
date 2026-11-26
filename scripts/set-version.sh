@@ -4,7 +4,7 @@
 #
 # Sets the registrybot release the deployments name, before that release is
 # tagged: the image tag in manifests/registrybot.yaml and in the installer
-# package in package/, whose version is the release's without the "v", as
+# package in package/, whose version is the release's, as
 # package/README.md's commands pull it. Commit the change and merge it, then
 # push the tag. release.yml fails for a tag the deployments don't name.
 #
@@ -29,17 +29,19 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pkg="${repo}/package"
 readme="${pkg}/README.md"
 manifest="${repo}/manifests/registrybot.yaml"
-export IMAGE=ghcr.io/confighub/registrybot TAG="$tag" VERSION="${tag#v}"
+export IMAGE=ghcr.io/confighub/registrybot TAG="$tag"
 
 if $check; then
   wrong=0
   grep -q "image: ${IMAGE}:${tag}\$" "$manifest" || { echo "manifests/registrybot.yaml does not run ${IMAGE}:${tag}" >&2; wrong=1; }
   [ "$(yq -r '.images[] | select(.name == strenv(IMAGE)) | .newTag' "${pkg}/bases/default/kustomization.yaml")" = "$tag" ] \
     || { echo "package/bases/default/kustomization.yaml does not pin ${tag}" >&2; wrong=1; }
-  [ "$(yq -r .installerMetadata.version "${pkg}/installer.yaml")" = "$VERSION" ] \
-    || { echo "package/installer.yaml is not version ${VERSION}" >&2; wrong=1; }
-  ! grep -oE "registrybot:[0-9]+\.[0-9]+\.[0-9]+" "$readme" | grep -qvx "registrybot:${VERSION}" \
-    || { echo "package/README.md does not pull version ${VERSION}" >&2; wrong=1; }
+  [ "$(yq -r .installerMetadata.version "${pkg}/installer.yaml")" = "$tag" ] \
+    || { echo "package/installer.yaml is not version ${tag}" >&2; wrong=1; }
+  # Releases through v0.6.0 published the package without the "v", and the
+  # README pulls it that way until the next release sets it.
+  ! grep -oE "registrybot:v?[0-9]+\.[0-9]+\.[0-9]+" "$readme" | grep -qvxE "registrybot:v?${tag#v}" \
+    || { echo "package/README.md does not pull version ${tag}" >&2; wrong=1; }
   [ "$wrong" = 0 ] || { echo "Run scripts/set-version.sh ${tag}, merge it, and tag again." >&2; exit 1; }
   echo "The deployments run ${IMAGE}:${tag}."
   exit 0
@@ -55,7 +57,7 @@ yq_edit() {
 
 perl -pi -e 's{^(\s*image: \Q$ENV{IMAGE}\E):v[0-9]+\.[0-9]+\.[0-9]+$}{$1:$ENV{TAG}}' "$manifest"
 yq_edit "${pkg}/bases/default/kustomization.yaml" '(.images[] | select(.name == strenv(IMAGE))).newTag = strenv(TAG)'
-yq_edit "${pkg}/installer.yaml" '.installerMetadata.version = strenv(VERSION)'
-perl -pi -e 's{\bregistrybot:[0-9]+\.[0-9]+\.[0-9]+}{registrybot:$ENV{VERSION}}g' "$readme"
+yq_edit "${pkg}/installer.yaml" '.installerMetadata.version = strenv(TAG)'
+perl -pi -e 's{\bregistrybot:v?[0-9]+\.[0-9]+\.[0-9]+}{registrybot:$ENV{TAG}}g' "$readme"
 
 "$0" --check "$tag"
