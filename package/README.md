@@ -39,7 +39,7 @@ registrybot needs the following before installing it, set up as under [Setup](..
 Installing takes cub v0.11.19 or later, which has the installer built in. The credentials never go to ConfigHub: put them in the `registrybot-secrets` Secret in the install namespace yourself, or with your secret store, under the keys `CONFIGHUB_AUTH_PRIVATE_KEY`, `GITHUB_TOKEN`, and, with the `webhooks` component, `GITHUB_WEBHOOK_SECRET`.
 
 ```sh
-cub package install registrybot:0.6.0 --space registrybot-my-cluster --namespace registrybot
+cub package install registrybot:v0.6.1 --space registrybot-my-cluster --namespace registrybot
 kubectl create namespace registrybot
 kubectl create secret generic registrybot-secrets -n registrybot \
   --from-file=CONFIGHUB_AUTH_PRIVATE_KEY=$HOME/.confighub/keys/registrybot.jwk \
@@ -48,7 +48,7 @@ kubectl create secret generic registrybot-secrets -n registrybot \
 
 Add `--select webhooks` to receive webhooks, and `--select config-unit` to have registrybot read its configuration from a ConfigHub Unit.
 
-`registrybot:0.6.0` is short for `oci://ghcr.io/confighub/packages/registrybot:0.6.0`; without a version, cub installs the newest release. Installing again into the same Space, at the same or a newer version, keeps the answers given before, so it is also how to upgrade.
+`registrybot:v0.6.1` is short for `oci://ghcr.io/confighub/packages/registrybot:v0.6.1`; without a version, cub installs the newest release. Installing again into the same Space, at the same or a newer version, keeps the answers given before, so it is also how to upgrade.
 
 The document the package ships watches nothing and sends fact Units to the Space `registrybot`. After the install, say what to watch in the `registrybot-config` Unit:
 
@@ -72,7 +72,7 @@ To run another image, such as a mirror's copy, pass `--set-image ghcr.io/configh
 Every input has a default, so one install can be the base that each cluster's variant is cloned from. Set what differs in each variant's Units: `registrybot-config` for what it watches, and `registrybot`, which holds the Deployment, for its environment:
 
 ```sh
-cub package install registrybot:0.6.0 --space registrybot-base --namespace registrybot
+cub package install registrybot:v0.6.1 --space registrybot-base --namespace registrybot
 cub variant create --target my-cluster/target my-cluster registrybot-base
 cub function do --space registrybot-my-cluster --unit registrybot \
   set-env registrybot REGISTRYBOT_POLL_INTERVAL=10m
@@ -84,4 +84,4 @@ cub function do --space registrybot-my-cluster --unit registrybot \
 
 ## Publishing
 
-The package's version is the registrybot release it runs: package v0.6.1 runs registrybot v0.6.1. Releases through v0.6.0 published the package without the "v", as `registrybot:0.6.0`. Pushing a release tag publishes it after the image (`release.yml`), which sets `installerMetadata.version` and the `images:` tag in `bases/default/kustomization.yaml` from the tag first, so neither is bumped by hand. A version is published once, so a change to the package alone ships with the next registrybot release.
+The package's version is the registrybot release it runs: package v0.6.1 runs registrybot v0.6.1. Releases through v0.6.0 published the package without the "v", as `registrybot:v0.6.1`. Pushing a release tag publishes it after the image (`release.yml`), which sets `installerMetadata.version` and the `images:` tag in `bases/default/kustomization.yaml` from the tag first, so neither is bumped by hand. A version is published once, so a change to the package alone ships with the next registrybot release.

@@ -8,7 +8,7 @@ installerMetadata:
   # The registrybot release the package runs. Set it, and the
   # image tag in bases/default/kustomization.yaml, with
   # scripts/set-version.sh before tagging the release.
-  version: v0.6.0
+  version: v0.6.1
   # vet-pod-security-standard.
   installerVersion: ">= 0.3.0"
 spec:
