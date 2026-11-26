@@ -35,7 +35,7 @@ fail() {
 # The package's version is the registrybot release it runs, and the plain
 # manifest runs the same one.
 version="$(yq -r .installerMetadata.version "${pkg}/installer.yaml")"
-"${repo}/scripts/set-version.sh" --check "v${version}" >/dev/null || fail "the package and manifests/registrybot.yaml name different releases"
+"${repo}/scripts/set-version.sh" --check "${version}" >/dev/null || fail "the package and manifests/registrybot.yaml name different releases"
 
 # render <case> <installer setup args...> renders the package.
 render() {

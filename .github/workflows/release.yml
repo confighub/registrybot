@@ -89,7 +89,7 @@ jobs:
 
   # Publish the installer package (package/), which runs the image just pushed,
   # as oci://ghcr.io/confighub/packages/registrybot:<version>, signed keylessly.
-  # Tag events only: a package version is the release's without the "v", and is
+  # Tag events only: a package version is the release's, and is
   # published once. The image job has checked that the package names the tag.
   package:
     needs: [image]

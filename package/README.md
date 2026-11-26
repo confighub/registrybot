@@ -84,4 +84,4 @@ cub function do --space registrybot-my-cluster --unit registrybot \
 
 ## Publishing
 
-The package's version is the registrybot release it runs: package 0.5.0 runs registrybot v0.5.0. Pushing a release tag publishes it after the image (`release.yml`), which sets `installerMetadata.version` and the `images:` tag in `bases/default/kustomization.yaml` from the tag first, so neither is bumped by hand. A version is published once, so a change to the package alone ships with the next registrybot release.
+The package's version is the registrybot release it runs: package v0.6.1 runs registrybot v0.6.1. Releases through v0.6.0 published the package without the "v", as `registrybot:0.6.0`. Pushing a release tag publishes it after the image (`release.yml`), which sets `installerMetadata.version` and the `images:` tag in `bases/default/kustomization.yaml` from the tag first, so neither is bumped by hand. A version is published once, so a change to the package alone ships with the next registrybot release.
